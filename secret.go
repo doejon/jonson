@@ -24,7 +24,7 @@ func RequireSecret(ctx *Context) Secret {
 
 type Secret interface {
 	Encode(in string) string
-	Decode(in string) string
+	Decode(in string) (string, error)
 }
 
 type AESSecret struct {

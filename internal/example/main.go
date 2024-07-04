@@ -4,7 +4,7 @@ import (
 	"log"
 
 	"github.com/doejon/jonson"
-	"github.com/doejon/jonson/cmd/example/systems/account"
+	"github.com/doejon/jonson/internal/example/systems/account"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
 	providers.RegisterProvider(account.NewAuthenticationProvider())
 
 	// let's declare the methods to be handled
-	methods := jonson.NewMethodHandler(providers, jonson.NewAESErrorEncoder("962C27B021AD53CC1110E81E6F6C09D7A14F7911C508A43A"), nil)
+	methods := jonson.NewMethodHandler(providers, jonson.NewAESSecret("962C27B021AD53CC1110E81E6F6C09D7A14F7911C508A43A"), nil)
 	accountSystem := account.NewAccount()
 	methods.RegisterSystem(accountSystem)
 

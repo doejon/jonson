@@ -1,4 +1,4 @@
-github.com/doejon/jonson v0.0.0-20240704175106-a52f4546f98b h1:UUrPr4u6f7zNLCJ/+3AWv21p5NG9JGOHNfzS7i5n1mU=
-github.com/doejon/jonson v0.0.0-20240704175106-a52f4546f98b/go.mod h1:NhTxkmcbxGB/QtnleW8GmM92FVwjzRs8oEh5r+jOQQM=
+github.com/doejon/jonson v0.0.0-20240704185914-525dd73b0022 h1:o09bhg+BmYCDTdZ9jvuMlcxoEHLPSu/+vKLwsfleq7Y=
+github.com/doejon/jonson v0.0.0-20240704185914-525dd73b0022/go.mod h1:NhTxkmcbxGB/QtnleW8GmM92FVwjzRs8oEh5r+jOQQM=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
