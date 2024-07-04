@@ -1,0 +1,45 @@
+
+### Get account, not authorized
+POST http://localhost:8080/account/get.v1
+content-type: application/json
+
+{
+    "uuid": "70634da0-7459-4a17-a50f-7afc2a600d50"
+}
+
+### Get account, authorized
+
+POST http://localhost:8080/account/get.v1
+content-type: application/json
+Authorization: authorized
+
+{
+    "uuid": "70634da0-7459-4a17-a50f-7afc2a600d50"
+}
+
+### Get account using rpc endpoint, not authorized
+POST http://localhost:8080/rpc
+content-type: application/json
+
+{
+	"id": 1,
+	"version": "2.0",
+	"method": "account/get.v1",
+	"params": {
+    	"uuid": "70634da0-7459-4a17-a50f-7afc2a600d50"
+	}
+}
+
+### Get account using rpc endpoint, authorized
+POST http://localhost:8080/rpc
+content-type: application/json
+Authorization: authorized
+
+{
+	"id": 1,
+	"version": "2.0",
+	"method": "account/get.v1",
+	"params": {
+    	"uuid": "70634da0-7459-4a17-a50f-7afc2a600d50"
+	}
+}
