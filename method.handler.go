@@ -46,27 +46,29 @@ type apiEndpoint struct {
 }
 
 type MethodHandler struct {
-	provider Provider
-	endpoint func(system string, method string, version uint64) string
+	provider   Provider
+	methodName func(system string, method string, version uint64) string
 
 	systems      map[reflect.Type]any
 	endpoints    map[string]apiEndpoint
 	errorEncoder Secret
 }
 
+func GetDefaultMethodName(system string, method string, version uint64) string {
+	return system + "/" + method + ".v" + strconv.FormatUint(version, 10)
+}
+
 func NewMethodHandler(
 	provider Provider,
 	errorEncoder Secret,
-	endpoint func(system string, method string, version uint64) string,
+	methodName func(system string, method string, version uint64) string,
 ) *MethodHandler {
-	if endpoint == nil {
-		endpoint = func(system string, method string, version uint64) string {
-			return system + "/" + method + ".v" + strconv.FormatUint(version, 10)
-		}
+	if methodName == nil {
+		methodName = GetDefaultMethodName
 	}
 	return &MethodHandler{
 		provider:     provider,
-		endpoint:     endpoint,
+		methodName:   methodName,
 		systems:      map[reflect.Type]any{},
 		endpoints:    map[string]apiEndpoint{},
 		errorEncoder: errorEncoder,
@@ -106,7 +108,7 @@ func (m *MethodHandler) RegisterSystem(sys any, routeDebugger ...func(s string))
 		if methodName, version := SplitMethodName(rtm.Name); version > 0 {
 			// we have found a valid method signature, build definition and try to register
 			for _, v := range routeDebugger {
-				v(m.endpoint(systemName, methodName, version))
+				v(m.methodName(systemName, methodName, version))
 			}
 
 			m.RegisterMethod(&MethodDefinition{
@@ -148,7 +150,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 
 	// we need to scan each argument from handlerFunc to see if it's compatible with our assumptions
 	var (
-		handlerName         = m.endpoint(def.System, def.Method, def.Version)
+		handlerName         = m.methodName(def.System, def.Method, def.Version)
 		seenTypes           = map[reflect.Type]struct{}{}
 		typeParams          reflect.Type
 		argPosParams        = -1
