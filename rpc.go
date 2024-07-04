@@ -47,7 +47,7 @@ func NewRPCNotification(method string, payload any) *RPCNotification {
 }
 
 // UnmarshalAndValidate fills the given interface with the supplied params
-func (r *RPCRequest) UnmarshalAndValidate(errEncoder ErrorEncoder, out any, bindata []byte) error {
+func (r *RPCRequest) UnmarshalAndValidate(errEncoder Secret, out any, bindata []byte) error {
 	dec := json.NewDecoder(bytes.NewReader([]byte(r.Params)))
 	dec.DisallowUnknownFields()
 	dec.UseNumber()

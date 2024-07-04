@@ -8,7 +8,7 @@ import (
 )
 
 // Validate validates the given object
-func Validate(errEncoder ErrorEncoder, obj any) error {
+func Validate(errEncoder Secret, obj any) error {
 	if errs := validate(errEncoder, obj, nil); len(errs) > 0 {
 		return ErrInvalidParams.CloneWithData(&ErrorData{
 			Details: errs,
@@ -18,7 +18,7 @@ func Validate(errEncoder ErrorEncoder, obj any) error {
 	return nil
 }
 
-func validate(errEncoder ErrorEncoder, obj any, currentPath []any) []*Error {
+func validate(errEncoder Secret, obj any, currentPath []any) []*Error {
 	var errs []*Error
 
 	rv := reflect.ValueOf(obj)

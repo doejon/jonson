@@ -13,24 +13,25 @@ import (
 	"strconv"
 )
 
-var TypeErrorEncoder = reflect.TypeOf((*ErrorEncoder)(nil)).Elem()
+var TypeSecret = reflect.TypeOf((*Secret)(nil)).Elem()
 
-func RequireErrorEncoder(ctx *Context) ErrorEncoder {
-	if v := ctx.Require(TypeErrorEncoder); v != nil {
-		return v.(ErrorEncoder)
+func RequireSecret(ctx *Context) Secret {
+	if v := ctx.Require(TypeSecret); v != nil {
+		return v.(Secret)
 	}
 	return nil
 }
 
-type ErrorEncoder interface {
+type Secret interface {
 	Encode(in string) string
+	Decode(in string) string
 }
 
-type AESErrorEncoder struct {
+type AESSecret struct {
 	aesCypher []byte
 }
 
-func NewAESErrorEncoder(aesKeyHex string) *AESErrorEncoder {
+func NewAESSecret(aesKeyHex string) *AESSecret {
 	aesCypher, err := hex.DecodeString(aesKeyHex)
 	if err != nil {
 		panic("error encoder: %w" + err.Error())
@@ -40,13 +41,13 @@ func NewAESErrorEncoder(aesKeyHex string) *AESErrorEncoder {
 		panic("error encoder: AES cypher needs to be 16, 24 or 32 bytes long, got: " + strconv.Itoa(len(aesCypher)))
 	}
 
-	return &AESErrorEncoder{
+	return &AESSecret{
 		aesCypher: aesCypher,
 	}
 }
 
 // Encode may be used to embed sensitive information
-func (e *AESErrorEncoder) Encode(in string) string {
+func (e *AESSecret) Encode(in string) string {
 	block, err := aes.NewCipher(e.aesCypher)
 	if err != nil {
 		return ""
@@ -65,7 +66,7 @@ func (e *AESErrorEncoder) Encode(in string) string {
 	return base64.StdEncoding.EncodeToString(ciphertext)
 }
 
-func (e *AESErrorEncoder) Decode(in string) (string, error) {
+func (e *AESSecret) Decode(in string) (string, error) {
 	encoded, err := base64.StdEncoding.DecodeString(in)
 	if err != nil {
 		return "", err

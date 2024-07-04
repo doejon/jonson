@@ -68,7 +68,7 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 		ctx := NewContext(r.Context(), h.provider, h.methodHandler)
 		ctx.StoreValue(TypeHTTPRequest, r)
 		ctx.StoreValue(TypeHTTPResponseWriter, w)
-		ctx.StoreValue(TypeErrorEncoder, h.methodHandler.errorEncoder)
+		ctx.StoreValue(TypeSecret, h.methodHandler.errorEncoder)
 		defer ctx.Finalize(nil)
 
 		handler(ctx, w, r, parts)

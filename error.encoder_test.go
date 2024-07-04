@@ -4,7 +4,7 @@ import "testing"
 
 func TestEncoding(t *testing.T) {
 	key := "962C27B021AD53CC1110E81E6F6C09D7A14F7911C508A43A"
-	enc := NewAESErrorEncoder(key)
+	enc := NewAESSecret(key)
 	text := "Silvio"
 
 	encoded := enc.Encode(text)

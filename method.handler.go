@@ -51,12 +51,12 @@ type MethodHandler struct {
 
 	systems      map[reflect.Type]any
 	endpoints    map[string]apiEndpoint
-	errorEncoder ErrorEncoder
+	errorEncoder Secret
 }
 
 func NewMethodHandler(
 	provider Provider,
-	errorEncoder ErrorEncoder,
+	errorEncoder Secret,
 	endpoint func(system string, method string, version uint64) string,
 ) *MethodHandler {
 	if endpoint == nil {
@@ -163,7 +163,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		TypeHTTPRequest,
 		TypeHTTPResponseWriter,
 		TypeWSClient,
-		TypeErrorEncoder,
+		TypeSecret,
 	)
 
 	for i := paramShift; i < rt.NumIn(); i++ {
@@ -324,7 +324,7 @@ func (m *MethodHandler) processMessage(r *http.Request, w http.ResponseWriter, w
 	ctx.StoreValue(TypeHTTPRequest, r)
 	ctx.StoreValue(TypeHTTPResponseWriter, w)
 	ctx.StoreValue(TypeWSClient, ws)
-	ctx.StoreValue(TypeErrorEncoder, m.errorEncoder)
+	ctx.StoreValue(TypeSecret, m.errorEncoder)
 
 	// do the actual api call
 	res, err := m.callMethod(ctx, rpcRequest, bindata)
