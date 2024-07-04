@@ -20,4 +20,3 @@
 # Go workspace file
 go.work
 go.work.sum
-!cmd/jonson-generate/go.work
