@@ -1,4 +1,4 @@
-module github.com/doejon/jonson/jonson-generate
+module github.com/doejon/jonson/cmd/jonson-generate
 
 go 1.22.2
 
