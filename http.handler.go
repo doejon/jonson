@@ -203,6 +203,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	}
 
 	successResp, ok := resp.(*RPCResultResponse)
+	httpStatus := http.StatusOK
 	var dataToMarshal = resp
 	if ok {
 		dataToMarshal = successResp.Result
@@ -210,11 +211,12 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	errorResp, ok := resp.(*RPCErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
+		httpStatus = http.StatusInternalServerError
 	}
 
 	// single response for these calls allowed only
 	b, _ := json.Marshal(dataToMarshal)
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(httpStatus)
 	w.Write(b)
 	return true
 
