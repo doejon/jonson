@@ -212,27 +212,20 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	errorResp, ok := resp.(*RPCErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
-		switch errorResp.Error.Code{
+		switch errorResp.Error.Code {
 		case ErrInvalidParams.Code:
+			fallthrough
 		case ErrParse.Code:
 			httpStatus = http.StatusBadRequest
-			break
-		case ErrUnauthorized.Code.Code:
-			httpStatus = http.StatusForbidden
-			break
+		case ErrUnauthorized.Code:
+			fallthrough
 		case ErrUnauthenticated.Code:
-			httStatus = http.StatusForbidden
-			break
+			httpStatus = http.StatusForbidden
 		case ErrMethodNotFound.Code:
-			httpStatus =  http.StatusNotFound
-			break
+			httpStatus = http.StatusNotFound
 		default:
 			httpStatus = http.StatusInternalServerError
 		}
-		if errorResp.Error.Code == ErrInvalidParams.Code{
-
-		} else if 
-		httpStatus = http.StatusInternalServerError
 	}
 
 	// single response for these calls allowed only
