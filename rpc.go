@@ -118,3 +118,21 @@ func NewRPCResultResponse(id json.RawMessage, result any) *RPCResultResponse {
 		Result:            result,
 	}
 }
+
+// RPCMeta contains RPC call meta data information that has been set whenever
+// a call towards an RPC method happened
+type RPCMeta struct {
+	Method string
+	// we might add more fields here in the future
+}
+
+var TypeRPCMeta = reflect.TypeOf((**RPCMeta)(nil)).Elem()
+
+func RequireRPCMeta(ctx *Context) *RPCMeta {
+	if v := ctx.Require(TypeHTTPResponseWriter); v != nil {
+		// we do return a copy here
+		x := *v.(*RPCMeta)
+		return &x
+	}
+	return nil
+}

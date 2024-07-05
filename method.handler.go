@@ -327,6 +327,9 @@ func (m *MethodHandler) processMessage(r *http.Request, w http.ResponseWriter, w
 	ctx.StoreValue(TypeHTTPResponseWriter, w)
 	ctx.StoreValue(TypeWSClient, ws)
 	ctx.StoreValue(TypeSecret, m.errorEncoder)
+	ctx.StoreValue(TypeRPCMeta, &RPCMeta{
+		Method: rpcRequest.Method,
+	})
 
 	// do the actual api call
 	res, err := m.callMethod(ctx, rpcRequest, bindata)
