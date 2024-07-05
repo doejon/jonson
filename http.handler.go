@@ -202,8 +202,18 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		}, nil)
 	}
 
+	successResp, ok := resp.(*RPCResultResponse)
+	var dataToMarshal = resp
+	if ok {
+		dataToMarshal = successResp.Result
+	}
+	errorResp, ok := resp.(*RPCErrorResponse)
+	if ok {
+		dataToMarshal = errorResp.Error
+	}
+
 	// single response for these calls allowed only
-	b, _ := json.Marshal(resp)
+	b, _ := json.Marshal(dataToMarshal)
 	w.WriteHeader(http.StatusOK)
 	w.Write(b)
 	return true

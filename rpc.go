@@ -103,15 +103,15 @@ func NewRPCErrorResponse(id json.RawMessage, e *Error) *RPCErrorResponse {
 	}
 }
 
-// ResultResponse object
-type ResultResponse struct {
+// RPCResultResponse object
+type RPCResultResponse struct {
 	RPCResponseHeader
 	Result any `json:"result"`
 }
 
 // NewRPCResultResponse returns a new ResultResponse
-func NewRPCResultResponse(id json.RawMessage, result any) *ResultResponse {
-	return &ResultResponse{
+func NewRPCResultResponse(id json.RawMessage, result any) *RPCResultResponse {
+	return &RPCResultResponse{
 		RPCResponseHeader: NewRPCResponseHeader(id),
 		Result:            result,
 	}
