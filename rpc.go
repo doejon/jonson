@@ -3,7 +3,6 @@ package jonson
 import (
 	"bytes"
 	"encoding/json"
-	"log"
 	"reflect"
 )
 
@@ -54,7 +53,6 @@ func (r *RPCRequest) UnmarshalAndValidate(errEncoder Secret, out any, bindata []
 	dec.DisallowUnknownFields()
 	dec.UseNumber()
 	if err := dec.Decode(out); err != nil {
-		log.Printf("failed to decode payload: %s", err)
 		return ErrInvalidParams.CloneWithData(&ErrorData{
 			Debug: errEncoder.Encode(err.Error()),
 		})

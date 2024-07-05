@@ -81,7 +81,7 @@ func (m *MethodHandler) GetSystem(sys any) any {
 	tof := reflect.TypeOf(sys)
 	out, ok := m.systems[tof]
 	if !ok {
-		panic(fmt.Errorf("system %v does not exist", tof))
+		panic(fmt.Errorf("getSystem: system %v does not exist", tof))
 	}
 	return out
 }
@@ -93,12 +93,12 @@ func (m *MethodHandler) RegisterSystem(sys any, routeDebugger ...func(s string))
 	m.systems[rt] = sys
 
 	if rt.Kind() != reflect.Ptr {
-		panic(errors.New("expected ptr to struct"))
+		panic(errors.New("registerSystem: expected ptr to struct"))
 	}
 
 	rte := rt.Elem()
 	if rte.Kind() != reflect.Struct {
-		panic(errors.New("expected ptr to struct"))
+		panic(errors.New("registerSystem: expected ptr to struct"))
 	}
 	systemName := ToKebabCase(rte.Name())
 

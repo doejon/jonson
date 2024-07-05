@@ -27,6 +27,7 @@ func NewServer(handlers ...Handler) *Server {
 	}
 }
 
+// ServeHTTP implements the http.Handler interface
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, v := range s.handlers {
 		if v.Handle(w, r) {

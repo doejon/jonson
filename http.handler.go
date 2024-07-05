@@ -17,7 +17,11 @@ func init() {
 	respMethodNotAllowed, _ = json.Marshal(NewRPCErrorResponse(nil, ErrServerMethodNotAllowed))
 }
 
-func RequireHTTPRequest(ctx *Context) *http.Request {
+// RequireHttpRequest returns the current http request.
+// In case the connection was created using websockets,
+// the underlying http.Request opening the connection
+// will be returned.
+func RequireHttpRequest(ctx *Context) *http.Request {
 	if v := ctx.Require(TypeHTTPRequest); v != nil {
 		return v.(*http.Request)
 	}
@@ -26,7 +30,9 @@ func RequireHTTPRequest(ctx *Context) *http.Request {
 
 var TypeHTTPResponseWriter = reflect.TypeOf((*http.ResponseWriter)(nil)).Elem()
 
-func RequireHTTPResponseWriter(ctx *Context) http.ResponseWriter {
+// RequireHttpResponseWriter returns the current http response writer
+// which is used to handle the ongoing request's response.
+func RequireHttpResponseWriter(ctx *Context) http.ResponseWriter {
 	if v := ctx.Require(TypeHTTPResponseWriter); v != nil {
 		return v.(http.ResponseWriter)
 	}

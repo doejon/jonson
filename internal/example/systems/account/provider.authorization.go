@@ -18,7 +18,7 @@ func NewAuthenticationProvider() *AuthenticationProvider {
 }
 
 func (p *AuthenticationProvider) NewPrivate(ctx *jonson.Context) *Private {
-	r := jonson.RequireHTTPRequest(ctx)
+	r := jonson.RequireHttpRequest(ctx)
 	authenticated := r.Header.Get("Authorization")
 	if authenticated != "authorized" {
 		panic("account is not authorized; please set the Authorization header to 'authorized'")
