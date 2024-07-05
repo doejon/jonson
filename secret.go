@@ -90,3 +90,23 @@ func (e *AESSecret) Decode(in string) (string, error) {
 	}
 	return string(out), nil
 }
+
+// DebugSecret implements the Secret interface without
+// actually encrypting the passed data: the data will be returned
+// as-is. The functionality can be helpful for debugging certain
+// error messages during development.
+type DebugSecret struct {
+}
+
+func NewDebugSecret() *DebugSecret {
+	return &DebugSecret{}
+}
+
+// Encode may be used to embed sensitive information
+func (e *DebugSecret) Encode(in string) string {
+	return in
+}
+
+func (e *DebugSecret) Decode(in string) (string, error) {
+	return in, nil
+}
