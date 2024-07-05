@@ -14,6 +14,8 @@ var (
 	ErrInvalidParams          = &Error{Code: -32602, Message: "Invalid params"}
 	ErrInternal               = &Error{Code: -32603, Message: "Internal error"}
 	ErrServerMethodNotAllowed = &Error{Code: -32000, Message: "Server error: method not allowed"}
+	ErrUnauthorized           = &Error{Code: -32001, Message: "Server error: unauthorized"}
+	ErrUnauthenticated        = &Error{Code: -32002, Message: "Server error: unauthenticated"}
 )
 
 // RPCRequest object

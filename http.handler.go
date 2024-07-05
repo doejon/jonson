@@ -174,7 +174,8 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	}
 	if acceptedHttpMethod != req.Method {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write(respMethodNotAllowed)
+		b, _ := json.Marshal(ErrServerMethodNotAllowed)
+		w.Write(b)
 		return true
 	}
 
@@ -211,6 +212,26 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	errorResp, ok := resp.(*RPCErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
+		switch errorResp.Error.Code{
+		case ErrInvalidParams.Code:
+		case ErrParse.Code:
+			httpStatus = http.StatusBadRequest
+			break
+		case ErrUnauthorized.Code.Code:
+			httpStatus = http.StatusForbidden
+			break
+		case ErrUnauthenticated.Code:
+			httStatus = http.StatusForbidden
+			break
+		case ErrMethodNotFound.Code:
+			httpStatus =  http.StatusNotFound
+			break
+		default:
+			httpStatus = http.StatusInternalServerError
+		}
+		if errorResp.Error.Code == ErrInvalidParams.Code{
+
+		} else if 
 		httpStatus = http.StatusInternalServerError
 	}
 
