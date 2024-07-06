@@ -52,8 +52,8 @@ func NewWebsocketOptions() *WebsocketOptions {
 }
 
 func NewWebsocketHandler(
-	path string,
 	methodHandler *MethodHandler,
+	path string,
 	options *WebsocketOptions,
 ) *WebsocketHandler {
 
