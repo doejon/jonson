@@ -9,9 +9,9 @@ import (
 
 // ---- method call wrappers ----
 
-// systems/account/account.go:24 -- GetV1
+// account.go:24 -- GetV1
 func GetV1(ctx *jonson.Context, p *AccountV1Params) (*AccountV1Result, error) {
-	v, err := ctx.CallMethod("account/get/v1", p, nil)
+	v, err := ctx.CallMethod("account/get.v1", p, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func GetV1(ctx *jonson.Context, p *AccountV1Params) (*AccountV1Result, error) {
 
 // ---- type handling wrappers ----
 
-// systems/account/account.go:6 -- Account -- struct
+// account.go:6 -- Account -- struct
 var TypeAccount = reflect.TypeOf((**Account)(nil)).Elem()
 
 func RequireAccount(ctx *jonson.Context) *Account {
@@ -33,7 +33,7 @@ func RequireAccount(ctx *jonson.Context) *Account {
 	return nil
 }
 
-// systems/account/provider.authorization.go:6 -- Private -- struct
+// provider.authorization.go:6 -- Private -- struct
 var TypePrivate = reflect.TypeOf((**Private)(nil)).Elem()
 
 func RequirePrivate(ctx *jonson.Context) *Private {
@@ -43,7 +43,7 @@ func RequirePrivate(ctx *jonson.Context) *Private {
 	return nil
 }
 
-// systems/account/provider.authorization.go:10 -- Public -- struct
+// provider.authorization.go:10 -- Public -- struct
 var TypePublic = reflect.TypeOf((**Public)(nil)).Elem()
 
 func RequirePublic(ctx *jonson.Context) *Public {
