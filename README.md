@@ -183,15 +183,34 @@ In case our provider is really simple, we can also use a single function:
 
 ```go
 // @generate
-type ServerName string
+type ServiceName string
 
-func ProvideServerName(ctx *jonson.Context)ServerName{
+func ProvideServiceName(ctx *jonson.Context)ServiceName{
   return "auth"
 }
 ```
 
 To register a simple provider function, use `factory.RegisterProviderFunc` passing the pointer to the InfrastructureProvider.
 For details, check out the section "Putting it all together";
+
+Once the types are provided by the factory, you can access them in your remote procedure calls:
+
+```go
+// LoginV1 allows an account to log in
+func (a *Authentication) LoginV1(ctx *jonson.Context, params *LoginV1Params) error{
+  // the factory provides the database and we can now access it here in the code
+  db := infra.RequireDB(ctx)
+  // put your logic here
+  return nil
+}
+```
+
+The generated types will be instantiated _once_ per API call and then stored within the context.
+In case a provider became invalid (e.g. we were storing a session provider and the account logged out),
+we can call the `context.Invalidate()` method passing the type which we need to invalidate.
+The context allows us to also store new values on the fly (e.g. the user logged in and we want to provide a session)
+by calling `context.StoreValue`.
+NOTE: as a security feature, context.StoreValue will panic in case a provided value already exists;
 
 ## Method handler
 
@@ -272,7 +291,7 @@ func main(){
   }))
 
   // register a simple provider function
-  factory.RegisterProviderFunc(infrastructure.ProvideServerName)
+  factory.RegisterProviderFunc(infrastructure.ProvideServiceName)
 
   // let's instantiate our systems
   authentication := authentication.NewAuthentication()
@@ -335,7 +354,20 @@ For further details on error messages, have a look at: [jsonRPC error object](ht
 
 ## Advanced factory features
 
-jonson allows you to use any provided type in your remote procedure call's parameters.
+In most cases, you will use the provided providers using their generated `RequireXXX` functions,
+such as:
+
+```go
+// LoginV1 allows an account to log in
+func (a *Authentication) LoginV1(ctx *jonson.Context, params *LoginV1Params) error{
+  // the factory provides the database and we can now access it here in the code
+  db := infra.RequireDB(ctx)
+  // put your logic here
+  return nil
+}
+```
+
+Furthermore, jonson allows you to use any provided type in your remote procedure call's parameters.
 In case the parameter is not providable and not of type jonson.Context or a remote procedure call jonson.Params,
 the function will not be called.
 
