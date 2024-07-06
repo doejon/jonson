@@ -2,6 +2,8 @@ package account
 
 import "github.com/doejon/jonson"
 
+//go:generate go run github.com/doejon/jonson/cmd/generate
+
 // @generate
 type Account struct{}
 

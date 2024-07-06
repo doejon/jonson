@@ -487,8 +487,13 @@ package example
 
 ```
 
-Using `go generate ./...`, you should now see a new file being created within your system
-containing provider and remote procedure calls.
+Using `go generate ./...`, you should now see two new files being created within your system
+containing provider and remote procedure calls:
+`jonson.procedure-calls.gen.go` and `jonson.providers.gen.go`.
+
+The procedure calls file contains all remote procedure calls specified within
+the current system. Those helper methods allow us to call another system's procedure without
+doing an http round trip.
 
 In order to trigger code generation, tag your types which should be requirable with `// @generate`.
 
