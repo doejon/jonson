@@ -305,8 +305,6 @@ func main() {
 		for name, object := range f.Scope.Objects {
 			// search types
 			if object.Kind == ast.Typ && ast.IsExported(name) && inList(name, whitelistTypes) {
-				//t := object.Decl.(*ast.TypeSpec)
-				//fmt.Printf("***\nNam: %s\nDoc: %#v\nCom: %#v\n", t.Name.Name, t.Doc, t.Comment)
 				listTypes = append(listTypes, object)
 				continue
 			}
