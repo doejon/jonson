@@ -392,6 +392,28 @@ func (a *Authentication) MeV1(ctx *jonson.Context, private *Private) (*MeV1Resul
 }
 ```
 
+## Code generation
+
+To create types for internal remote procedure calls (in between systems) as well as to
+generate the RequireProvider() functions, use the jonson generator.
+
+To generate types in a system (or provider), add the following line to one of your system's files.
+
+```go
+package example
+
+//go:generate go run github.com/doejon/jonson/cmd/generate
+
+```
+
+Using `go generate ./...`, you should now see a new file being created within your system
+containing provider and remote procedure calls.
+
+In order to trigger code generation, tag your types which should be requirable with `// @generate`.
+
+Current generation limitations:
+The generator currently only works with the default method name used within jonson.
+
 ## Dedication
 
 The whole idea for this library was born after a long iteration period with dear friends.
