@@ -28,14 +28,17 @@ The ideal folder structure for a jonson project following the systemic approach 
 look something like this:
 
 ```txt
-/
-/internal
-  /systems
-    /authorization
-      authorization.go
-    /authentication
-      authentication.go
-
+/<project-name>
+  /cmd
+    /server
+      main.go
+  /internal
+    /systems
+      /authorization
+        authorization.go
+      /authentication
+        authentication.go
+  
 go.mod
 ```
 
