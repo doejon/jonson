@@ -344,6 +344,55 @@ a given endpoint following the order they were passed. The first one that return
 In case your application is mostly used with websocket connections, it might be a good idea
 to pass the wsHandler as the first argument when calling `jonson.NewServer()`.
 
+## Exposed paths
+
+The methods a client will try to call can be exposed with different technologies as mentioned above (websocket, http rpc or http methods).
+
+In case you are using http methods, the paths exposed will look like this:
+/<systemName>/<methodName>.v<version>.
+The params you send (body) needs to match the json specification of your rpc's params.
+The result will be returned within the body as json also following your rpc's return value's json specification.
+
+For successful remote procedure calls, the http status code will be 200.
+For errors during the call, the http status code will be in the 4xx and 5xx range - depending on the
+error that occured. The response body will contain the json rpc error as per [specification](https://www.jsonrpc.org/specification#error_object).
+
+In case you are using rpc over websocket or http, your methods will look the same.
+However, you will have to wrap the request in the [jsonRPC request object](https://www.jsonrpc.org/specification#request_object).
+
+```json
+{
+  "jsonrpc": 2.0,
+  "id": 1,
+  "method": "<systemName>/<methodName>.v<version>",
+  "params": {},
+}
+```
+
+The response will reflect the `id` sent in the request.
+Each request should use its unique id per client to map the request to the response on the client's side.
+
+```json
+{
+  "jsonrpc": 2.0,
+  "id": 1,
+  "result": {}
+}
+```
+
+In case of an error response, the client will receive no result but an error in the response.
+
+```json
+{
+  "jsonrpc": 2.0,
+  "id": 1,
+  "error": {
+    "code": -32000,
+    "message": "Internal server error"
+  }
+}
+```
+
 ## Error handling
 
 jonson predefines a few jsonRPC default errors which are defined in the spec.
