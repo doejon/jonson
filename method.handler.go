@@ -275,11 +275,15 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 	}
 }
 
-func (m *MethodHandler) CallMethod(_ctx *Context, method string, payload any, bindata []byte) (any, error) {
+func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod RpcHttpMethod, payload any, bindata []byte) (any, error) {
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
+
+	// fetch the original meta
+	// in order to forward the original source information
+	meta := RequireRpcMeta(_ctx)
 
 	// we need to make sure to create a new context here;
 	ctx := _ctx.Fork()
@@ -295,16 +299,10 @@ func (m *MethodHandler) CallMethod(_ctx *Context, method string, payload any, bi
 		}
 	}
 
-	// let's forward the underlying http method which
-	// is used for these calls - in case they're relevant
-	var httpMethod RpcHttpMethod = RpcHttpMethodGet
-	if payload != nil || bindata != nil {
-		httpMethod = RpcHttpMethodPost
-	}
-
 	ctx.StoreValue(TypeRpcMeta, &RpcMeta{
 		Method:     method,
-		HttpMethod: httpMethod,
+		HttpMethod: rpcHttpMethod,
+		Source:     meta.Source,
 	})
 
 	res, err := m.callMethod(ctx, &RpcRequest{

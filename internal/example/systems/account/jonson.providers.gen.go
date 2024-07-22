@@ -8,7 +8,7 @@ import (
 )
 
 
-// systems/account/provider.authorization.go:6 -- Private -- struct
+// provider.authorization.go:6 -- Private -- struct
 var TypePrivate = reflect.TypeOf((**Private)(nil)).Elem()
 
 func RequirePrivate(ctx *jonson.Context) *Private {
@@ -18,7 +18,7 @@ func RequirePrivate(ctx *jonson.Context) *Private {
 	return nil
 }
 
-// systems/account/provider.authorization.go:10 -- Public -- struct
+// provider.authorization.go:14 -- Public -- struct
 var TypePublic = reflect.TypeOf((**Public)(nil)).Elem()
 
 func RequirePublic(ctx *jonson.Context) *Public {

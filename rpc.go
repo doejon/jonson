@@ -130,9 +130,9 @@ func NewRpcResultResponse(id json.RawMessage, result any) *RpcResultResponse {
 type RpcHttpMethod string
 
 const (
-	RpcHttpMethodGet     = "GET"
-	RpcHttpMethodPost    = "POST"
-	RpcHttpMethodUnknown = "UNKNOWN"
+	RpcHttpMethodGet     RpcHttpMethod = "GET"
+	RpcHttpMethodPost    RpcHttpMethod = "POST"
+	RpcHttpMethodUnknown RpcHttpMethod = "UNKNOWN"
 )
 
 func getRpcHttpMethod(req *http.Request) RpcHttpMethod {

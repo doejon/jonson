@@ -764,6 +764,12 @@ package example
 
 ```
 
+For projects forking jonson, you can provide your own jonson import as a flag during code generation:
+
+```go
+//go:generate go run github.com/doejon/jonson/cmd/generate -jonson=github.com/doejon/jonson
+```
+
 Using `go generate ./...`, you should now see two new files being created within your system
 containing providers and remote procedure calls:
 `jonson.procedure-calls.gen.go` and `jonson.providers.gen.go`.

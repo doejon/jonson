@@ -21,12 +21,14 @@ import (
 
 var (
 	fpath          = "."
+	jonsonPath     = "github.com/doejon/jonson"
 	apiNameMatcher = regexp.MustCompile(`^(.+)V([0-9]+)$`)
 	apiTypeMatcher = regexp.MustCompile(`(^|\n)@generate($|\n)`)
 )
 
 func init() {
 	flag.StringVar(&fpath, "path", fpath, "filepath to scan")
+	flag.StringVar(&jonsonPath, "jonson", jonsonPath, "path to jonson library")
 	flag.Parse()
 }
 
@@ -186,6 +188,12 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 
 		// input
 		var paramType string
+
+		// by default, all rpc calls use post.
+		// However, in case the developer wants to force certain http methods,
+		// we will find them in the function signature.
+		rpcHttpMethod := getRpcHttpMethod(object)
+
 		if len(object.Type.Params.List) > 0 {
 			lastArg := object.Type.Params.List[len(object.Type.Params.List)-1]
 			starExpr, ok := lastArg.Type.(*ast.StarExpr)
@@ -243,7 +251,7 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 			`
 // %s:%d -- %s
 func %s(ctx *jonson.Context%s) %s {
-	%s := ctx.CallMethod("%s", %s, nil)
+	%s := ctx.CallMethod("%s", %s, %s, nil)
 	if err != nil {
 		return %s
 	}
@@ -253,7 +261,7 @@ func %s(ctx *jonson.Context%s) %s {
 `,
 			pos.Filename, pos.Line, object.Name,
 			object.Name, params, result,
-			vAssign, methodName, parArg,
+			vAssign, methodName, rpcHttpMethod, parArg,
 			errRet,
 			valRet,
 			nilRet,
@@ -262,7 +270,7 @@ func %s(ctx *jonson.Context%s) %s {
 
 	imports := []string{}
 	if needsJonsonImport {
-		imports = append(imports, "github.com/doejon/jonson")
+		imports = append(imports, jonsonPath)
 	}
 
 	fContent := prependHeader(wtr, pkgName, imports...)
@@ -383,4 +391,23 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 
+}
+
+func getRpcHttpMethod(decl *ast.FuncDecl) string {
+	var m string = "jonson.RpcHttpMethodPost"
+	for _, v := range decl.Type.Params.List {
+		intf, ok := v.Type.(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+		switch intf.Sel.Name {
+		case "HttpGet":
+			return "jonson.RpcHttpMethodGet"
+		case "HttpPost":
+			return "jonson.RpcHttpMethodPost"
+		}
+
+	}
+
+	return m
 }
