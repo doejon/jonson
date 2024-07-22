@@ -350,7 +350,7 @@ func (m *MethodHandler) processRpcMessages(
 	if data[0] == '[' {
 		// unmarshal array
 		if err := dec.Decode(&rpcRequests); err != nil {
-			m.logger.Warn("method handler: parse error: ", err)
+			m.logger.Warn("method handler: parse error: ", "error", err)
 			resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 			return
 		}
@@ -368,7 +368,7 @@ func (m *MethodHandler) processRpcMessages(
 		// unmarshal single item
 		var rawRequest json.RawMessage
 		if err := dec.Decode(&rawRequest); err != nil {
-			m.logger.Warn("method handler: parse error: ", err)
+			m.logger.Warn("method handler: parse error: ", "error", err)
 			resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 			return
 		}
@@ -391,7 +391,7 @@ func (m *MethodHandler) processRpcMessages(
 		// rpc request format
 		rpcRequest := &RpcRequest{}
 		if err := json.Unmarshal(_rpcRequest, rpcRequest); err != nil {
-			m.logger.Warn("method handler: parse error: ", err)
+			m.logger.Warn("method handler: parse error: ", "error", err)
 			resp = append(resp, NewRpcErrorResponse(nil, ErrParse))
 			continue
 		}
@@ -464,7 +464,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 	// retrieve rpc handler
 	handler, ok := m.endpoints[rpcRequest.Method]
 	if !ok {
-		m.logger.Warn("method handler: endpoint not found: ", rpcRequest.Method)
+		m.logger.Warn("method handler: endpoint not found: ", "method", rpcRequest.Method)
 		return nil, ErrMethodNotFound
 	}
 
@@ -502,7 +502,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 			}()
 
 			if err != nil {
-				m.logger.Info("method handler: validation error: ", err)
+				m.logger.Info("method handler: validation error: ", "error", err)
 				return nil, err
 			}
 			args[i] = params
@@ -523,7 +523,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		}()
 
 		if err != nil {
-			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), err)
+			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), "error", err)
 			return nil, err
 		}
 
