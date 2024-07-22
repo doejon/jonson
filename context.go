@@ -14,7 +14,7 @@ var TypeContext = reflect.TypeOf((**Context)(nil)).Elem()
 
 type Context struct {
 	parent        context.Context
-	provider      Provider
+	factory       *Factory
 	methodHandler *MethodHandler
 	values        []*valueItem
 	finalized     bool
@@ -30,10 +30,10 @@ type valueItem struct {
 	valid bool
 }
 
-func NewContext(parent context.Context, provider Provider, methodHandler *MethodHandler) *Context {
+func NewContext(parent context.Context, factory *Factory, methodHandler *MethodHandler) *Context {
 	ctx := &Context{
 		parent:        parent,
-		provider:      provider,
+		factory:       factory,
 		methodHandler: methodHandler,
 	}
 	ctx.StoreValue(TypeContext, ctx)
@@ -41,7 +41,7 @@ func NewContext(parent context.Context, provider Provider, methodHandler *Method
 }
 
 func (c *Context) Fork() *Context {
-	return NewContext(c, c.provider, c.methodHandler)
+	return NewContext(c, c.factory, c.methodHandler)
 }
 
 func (c *Context) StoreValue(rt reflect.Type, val any) {
@@ -126,7 +126,7 @@ func (c *Context) Require(inst reflect.Type) any {
 	c.values = append(c.values, v)
 
 	// try to instantiate
-	v.val = c.provider.Provide(c, inst)
+	v.val = c.factory.Provide(c, inst)
 	v.valid = true
 	return v.val
 }

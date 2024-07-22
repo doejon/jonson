@@ -52,14 +52,14 @@ func RequireHttpResponseWriter(ctx *Context) *HttpResponseWriter {
 // will register those as default http endpoints. Those methods cannot
 // be called within the rpc world
 type HttpRegexpHandler struct {
-	provider      Provider
+	factory       *Factory
 	methodHandler *MethodHandler
 	patterns      map[*regexp.Regexp]func(http.ResponseWriter, *http.Request, []string)
 }
 
-func NewHttpRegexpHandler(provider Provider, methodHandler *MethodHandler) *HttpRegexpHandler {
+func NewHttpRegexpHandler(factory *Factory, methodHandler *MethodHandler) *HttpRegexpHandler {
 	return &HttpRegexpHandler{
-		provider:      provider,
+		factory:       factory,
 		methodHandler: methodHandler,
 		patterns:      map[*regexp.Regexp]func(http.ResponseWriter, *http.Request, []string){},
 	}
@@ -80,7 +80,7 @@ func (h *HttpRegexpHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 // RegisterRegexp registers a direct http func for a given regexp
 func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string)) {
 	h.patterns[pattern] = func(w http.ResponseWriter, r *http.Request, parts []string) {
-		ctx := NewContext(r.Context(), h.provider, h.methodHandler)
+		ctx := NewContext(r.Context(), h.factory, h.methodHandler)
 		ctx.StoreValue(TypeHttpRequest, &HttpRequest{
 			Request: r,
 		})

@@ -45,7 +45,7 @@ type apiEndpoint struct {
 }
 
 type MethodHandler struct {
-	provider   Provider
+	factory    *Factory
 	methodName func(system string, method string, version uint64) string
 
 	systems      map[reflect.Type]any
@@ -98,7 +98,7 @@ func NewMethodHandler(
 	}
 
 	return &MethodHandler{
-		provider:     factory,
+		factory:      factory,
 		methodName:   GetDefaultMethodName,
 		systems:      map[reflect.Type]any{},
 		endpoints:    map[string]apiEndpoint{},
@@ -189,7 +189,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		argPosParams        = -1
 		paramsSafeguardType = reflect.TypeOf((*paramsSafeguard)(nil)).Elem()
 		validatedParamsType = reflect.TypeOf((*ValidatedParams)(nil)).Elem()
-		providerTypes       = m.provider.Types()
+		providerTypes       = m.factory.Types()
 	)
 
 	// add types we implicitly support
@@ -414,7 +414,7 @@ func (m *MethodHandler) processRpcMessage(
 	bindata []byte,
 ) any {
 	// create bounded context and store request details
-	ctx := NewContext(r.Context(), m.provider, m)
+	ctx := NewContext(r.Context(), m.factory, m)
 	ctx.StoreValue(TypeHttpRequest, &HttpRequest{
 		Request: r,
 	})
@@ -570,4 +570,13 @@ func getRecoverError(e any) error {
 		return errors.New(s)
 	}
 	return fmt.Errorf("%v", e)
+}
+
+func isTypeSupported(list []reflect.Type, rt reflect.Type) bool {
+	for i := range list {
+		if list[i] == rt {
+			return true
+		}
+	}
+	return false
 }
