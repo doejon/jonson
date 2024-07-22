@@ -201,7 +201,7 @@ func TestMethodHandler(t *testing.T) {
 		testProvider.setLoggedIn(true)
 
 		ctx := NewContext(context.Background(), factory, methodHandler)
-		_res, err := methodHandler.CallMethod(ctx, "test-system/get-profile.v1", RpcHttpMethodGet, &GetProfileV1Params{
+		_res, err := methodHandler.CallMethod(ctx, "test-system/get-profile.v1", RpcHttpMethodPost, &GetProfileV1Params{
 			Uuid: testAccountUuid,
 		}, nil)
 

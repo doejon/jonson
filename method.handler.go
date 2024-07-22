@@ -281,10 +281,6 @@ func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod R
 		return nil, err
 	}
 
-	// fetch the original meta
-	// in order to forward the original source information
-	meta := RequireRpcMeta(_ctx)
-
 	// we need to make sure to create a new context here;
 	ctx := _ctx.Fork()
 
@@ -302,7 +298,7 @@ func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod R
 	ctx.StoreValue(TypeRpcMeta, &RpcMeta{
 		Method:     method,
 		HttpMethod: rpcHttpMethod,
-		Source:     meta.Source,
+		Source:     RpcSourceInternal,
 	})
 
 	res, err := m.callMethod(ctx, &RpcRequest{

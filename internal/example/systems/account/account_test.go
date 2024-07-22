@@ -40,7 +40,7 @@ func TestAccount(t *testing.T) {
 
 		err := contextBoundary.Run(func(ctx *jonson.Context) (err error) {
 			_, err = GetProfileV1(ctx, &GetProfileV1Params{
-				Uuid: "unknown",
+				Uuid: "9b641812-b78c-40f0-a8df-88f8378f10a7",
 			})
 			return err
 		})

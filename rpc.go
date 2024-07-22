@@ -155,9 +155,13 @@ func getRpcHttpMethod(req *http.Request) RpcHttpMethod {
 type RpcSource string
 
 const (
-	RpcSourceHttp    = "http"
-	RpcSourceHttpRpc = "httpRpc"
-	RpcSourceWs      = "ws"
+	RpcSourceHttp    RpcSource = "http"
+	RpcSourceHttpRpc RpcSource = "httpRpc"
+	RpcSourceWs      RpcSource = "ws"
+
+	// This rpc call will be set in case
+	// one rpc calls another rpc
+	RpcSourceInternal RpcSource = "internal"
 )
 
 // RpcMeta contains Rpc call meta data information that has been set whenever
