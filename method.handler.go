@@ -327,6 +327,7 @@ func (m *MethodHandler) CallMethod(_ctx *Context, method string, payload any, bi
 
 func (m *MethodHandler) processRpcMessages(
 	source RpcSource,
+	httpMethod RpcHttpMethod,
 	r *http.Request,
 	w http.ResponseWriter,
 	ws *WSClient,
@@ -394,7 +395,7 @@ func (m *MethodHandler) processRpcMessages(
 			resp = append(resp, NewRpcErrorResponse(nil, ErrParse))
 			continue
 		}
-		if rpcResponse := m.processRpcMessage(source, r, w, ws, rpcRequest, bindata); rpcResponse != nil {
+		if rpcResponse := m.processRpcMessage(source, httpMethod, r, w, ws, rpcRequest, bindata); rpcResponse != nil {
 			// ares is nil if we don't have to add a response (notifications)
 			resp = append(resp, rpcResponse)
 		}
@@ -407,6 +408,7 @@ func (m *MethodHandler) processRpcMessages(
 
 func (m *MethodHandler) processRpcMessage(
 	source RpcSource,
+	httpMethod RpcHttpMethod,
 	r *http.Request,
 	w http.ResponseWriter,
 	ws *WSClient,
@@ -425,11 +427,6 @@ func (m *MethodHandler) processRpcMessage(
 		ctx.StoreValue(TypeWSClient, ws)
 	}
 	ctx.StoreValue(TypeSecret, m.errorEncoder)
-
-	var httpMethod RpcHttpMethod = RpcHttpMethodGet
-	if rpcRequest.Params != nil && len(rpcRequest.Params) > 0 {
-		httpMethod = RpcHttpMethodPost
-	}
 
 	ctx.StoreValue(TypeRpcMeta, &RpcMeta{
 		Method:     rpcRequest.Method,

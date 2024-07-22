@@ -131,7 +131,7 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 		h.methodHandler.logger.Warn("rpc http handler: read error", err)
 		resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 	} else {
-		resp, batch = h.methodHandler.processRpcMessages(RpcSourceHttpRpc, req, w, nil, body)
+		resp, batch = h.methodHandler.processRpcMessages(RpcSourceHttpRpc, RpcHttpMethodPost, req, w, nil, body)
 	}
 
 	if len(resp) == 0 {
@@ -198,11 +198,13 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		err = json.NewDecoder(req.Body).Decode(&pl)
 	}
 
+	method := RpcHttpMethod(req.Method)
+
 	if err != nil {
 		h.methodHandler.logger.Warn("rpc http handler: read error", err)
 		resp = NewRpcErrorResponse(nil, ErrParse)
 	} else {
-		resp = h.methodHandler.processRpcMessage(RpcSourceHttp, req, w, nil, &RpcRequest{
+		resp = h.methodHandler.processRpcMessage(RpcSourceHttp, method, req, w, nil, &RpcRequest{
 			Version: "2.0",
 			Method:  p,
 			// we do not have any IDs here -> set to -1

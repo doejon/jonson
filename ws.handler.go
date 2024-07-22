@@ -128,7 +128,7 @@ func (w *WSClient) reader() {
 
 		if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
 			go func() {
-				resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, w.httpRequest, nil, w, p)
+				resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, RpcHttpMethodPost, w.httpRequest, nil, w, p)
 
 				if len(resp) == 0 {
 					// nothing to return but obviously everything was ok

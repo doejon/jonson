@@ -3,6 +3,7 @@ package jonson
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"reflect"
 )
 
@@ -129,9 +130,27 @@ func NewRpcResultResponse(id json.RawMessage, result any) *RpcResultResponse {
 type RpcHttpMethod string
 
 const (
-	RpcHttpMethodGet  = "GET"
-	RpcHttpMethodPost = "POST"
+	RpcHttpMethodGet     = "GET"
+	RpcHttpMethodPost    = "POST"
+	RpcHttpMethodUnknown = "UNKNOWN"
 )
+
+func getRpcHttpMethod(req *http.Request) RpcHttpMethod {
+	switch req.Method {
+	case "GET":
+		return RpcHttpMethodGet
+	case "get":
+		return RpcHttpMethodGet
+
+	case "POST":
+		return RpcHttpMethodPost
+	case "post":
+		return RpcHttpMethodPost
+	default:
+		return RpcHttpMethodUnknown
+	}
+
+}
 
 type RpcSource string
 
