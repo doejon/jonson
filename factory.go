@@ -1,6 +1,7 @@
 package jonson
 
 import (
+	"log/slog"
 	"reflect"
 	"strings"
 )
@@ -8,7 +9,7 @@ import (
 type Factory struct {
 	providers map[reflect.Type]boundMethod
 
-	logger Logger
+	logger *slog.Logger
 }
 
 type boundMethod struct {
@@ -16,7 +17,7 @@ type boundMethod struct {
 	method reflect.Value
 }
 
-func NewFactory(logger ...Logger) *Factory {
+func NewFactory(logger ...*slog.Logger) *Factory {
 	out := &Factory{
 		providers: map[reflect.Type]boundMethod{},
 	}
@@ -26,7 +27,7 @@ func NewFactory(logger ...Logger) *Factory {
 	// and will be available by default to all
 	// calls
 	out.RegisterProvider(newHttpMethodProvider())
-	var lg Logger = NewNoOpLogger()
+	var lg *slog.Logger = NewNoOpLogger()
 	for _, v := range logger {
 		lg = v
 	}

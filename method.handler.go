@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -52,7 +53,7 @@ type MethodHandler struct {
 	endpoints    map[string]apiEndpoint
 	errorEncoder Secret
 	opts         *MethodHandlerOptions
-	logger       Logger
+	logger       *slog.Logger
 }
 
 // MissingValidationLevel allows us to set
