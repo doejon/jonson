@@ -58,16 +58,6 @@ func (c *Context) StoreValue(rt reflect.Type, val any) {
 	})
 }
 
-// getValue returns item in case it exists
-func (c *Context) getValue(rt reflect.Type) (any, error) {
-	for _, v := range c.values {
-		if v.rt == rt && v.valid {
-			return v.val, nil
-		}
-	}
-	return nil, fmt.Errorf("value not found")
-}
-
 // Invalidate invalidates a value @ context.
 // The value will be removed from context and needs to be
 // re-required. Invalidation might e.g. happen during
@@ -129,6 +119,22 @@ func (c *Context) Require(inst reflect.Type) any {
 	v.val = c.factory.Provide(c, inst)
 	v.valid = true
 	return v.val
+}
+
+// GetRequired returns a value that's been previously required;
+// In case the value does _not_ exist, an error
+// will be returned;
+// This method is usually not needed but can be necessary
+// in case you're implementing new providers in the need
+// to access previously initialized values _without_ explicitly
+// initializing one (calling Require).
+func (c *Context) GetRequired(inst reflect.Type) (any, error) {
+	for _, v := range c.values {
+		if v.rt == inst && v.valid {
+			return v.val, nil
+		}
+	}
+	return nil, errors.New("instance not found")
 }
 
 func (c *Context) Finalize(err error) error {
