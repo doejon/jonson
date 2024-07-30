@@ -1,6 +1,7 @@
 package jonson
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -41,7 +42,7 @@ func TestAuthentication(t *testing.T) {
 	type test struct {
 		name   string
 		client *testAuthClient
-		do     func(*AuthProvider) (*string, error)
+		do     func(*Context, *AuthProvider) (*string, error)
 		check  func(accountUuid *string, err error) error
 	}
 
@@ -54,12 +55,12 @@ func TestAuthentication(t *testing.T) {
 				isAuthorized:       false,
 				isAuthorizedErr:    nil,
 			},
-			do: func(p *AuthProvider) (*string, error) {
-				public := p.NewPublic(nil)
-				out, err := public.AccountUuid(nil)
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				public := p.NewPublic(ctx)
+				out, err := public.AccountUuid(ctx)
 
 				// call twice to see call history
-				public.AccountUuid(nil)
+				public.AccountUuid(ctx)
 
 				return out, err
 			},
@@ -84,12 +85,12 @@ func TestAuthentication(t *testing.T) {
 				isAuthorized:       false,
 				isAuthorizedErr:    nil,
 			},
-			do: func(p *AuthProvider) (*string, error) {
-				public := p.NewPublic(nil)
-				out, err := public.AccountUuid(nil)
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				public := p.NewPublic(ctx)
+				out, err := public.AccountUuid(ctx)
 
 				// call twice to see call history
-				public.AccountUuid(nil)
+				public.AccountUuid(ctx)
 
 				return out, err
 			},
@@ -111,12 +112,12 @@ func TestAuthentication(t *testing.T) {
 				isAuthorized:       false,
 				isAuthorizedErr:    nil,
 			},
-			do: func(p *AuthProvider) (*string, error) {
-				public := p.NewPublic(nil)
-				out, err := public.AccountUuid(nil)
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				public := p.NewPublic(ctx)
+				out, err := public.AccountUuid(ctx)
 
 				// call twice to see call history
-				public.AccountUuid(nil)
+				public.AccountUuid(ctx)
 
 				return out, err
 			},
@@ -138,8 +139,8 @@ func TestAuthentication(t *testing.T) {
 				isAuthorized:       true,
 				isAuthorizedErr:    nil,
 			},
-			do: func(p *AuthProvider) (*string, error) {
-				private := p.NewPrivate(nil)
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				private := p.NewPrivate(ctx)
 				out := private.AccountUuid()
 				return &out, nil
 			},
@@ -164,8 +165,8 @@ func TestAuthentication(t *testing.T) {
 				isAuthorized:       false,
 				isAuthorizedErr:    nil,
 			},
-			do: func(p *AuthProvider) (*string, error) {
-				private := p.NewPrivate(nil)
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				private := p.NewPrivate(ctx)
 				out := private.AccountUuid()
 				return &out, nil
 			},
@@ -176,10 +177,11 @@ func TestAuthentication(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("expected error to be nil, got: %s", err)
 				}
-				if _, ok := err.(*Error); !ok {
+				casted, ok := err.(*Error)
+				if !ok {
 					return fmt.Errorf("expected error to be jonson error, got: %s", err)
 				}
-				if err.(*Error).Code != ErrUnauthorized.Code {
+				if casted.Code != ErrUnauthorized.Code {
 					return fmt.Errorf("error code should match unauthorized")
 				}
 				return nil
@@ -193,8 +195,8 @@ func TestAuthentication(t *testing.T) {
 				isAuthorized:       false,
 				isAuthorizedErr:    errors.New("failed to check session"),
 			},
-			do: func(p *AuthProvider) (*string, error) {
-				private := p.NewPrivate(nil)
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				private := p.NewPrivate(ctx)
 				out := private.AccountUuid()
 				return &out, nil
 			},
@@ -208,6 +210,62 @@ func TestAuthentication(t *testing.T) {
 				return nil
 			},
 		},
+		{
+			name: "authenticated fails since user is not authenticated and private was not called before",
+			client: &testAuthClient{
+				isAuthenticated:    false,
+				isAuthenticatedErr: errors.New("not authenticated"),
+				isAuthorized:       true,
+				isAuthorizedErr:    nil,
+			},
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				return RequirePublic(ctx).AccountUuid(ctx)
+			},
+			check: func(accountUuid *string, err error) error {
+				if err == nil {
+					t.Fatalf("expected no error, got: %s", err)
+				}
+				if err.Error() != "not authenticated" {
+					t.Fatalf("expected error to equal 'not authenticated', got: %s", err)
+				}
+				if accountUuid != nil {
+					return errors.New("expected no account uuid")
+				}
+				return nil
+			},
+		},
+		// the previous test makes sure the account uuid is not resolved in case
+		// the user is not logged in;
+		// here, we check for the account uuid that has previously been
+		// resolved by a call to NewPrivate(): we know that the account is logged in
+		// and do not need to call the remote client once more
+		{
+			name: "authorized and call to public will resolve the same uuid",
+			client: &testAuthClient{
+				isAuthenticated:    false,
+				isAuthenticatedErr: errors.New("not authenticated"),
+				isAuthorized:       true,
+				isAuthorizedErr:    nil,
+			},
+			do: func(ctx *Context, p *AuthProvider) (*string, error) {
+				RequirePrivate(ctx)
+				out, _ := RequirePublic(ctx).AccountUuid(ctx)
+
+				return out, nil
+			},
+			check: func(accountUuid *string, err error) error {
+				if err != nil {
+					t.Fatalf("expected no error, got: %s", err)
+				}
+				if accountUuid == nil {
+					return errors.New("expected account uuid")
+				}
+				if *accountUuid != testAccountUuid {
+					t.Fatalf("expected account uuid to match: %s | %s", *accountUuid, testAccountUuid)
+				}
+				return nil
+			},
+		},
 	}
 
 	for _, v := range tests {
@@ -215,15 +273,22 @@ func TestAuthentication(t *testing.T) {
 			func() {
 				// catch the panic
 				defer func() {
-					var err error
-					if _err := recover(); err != nil {
-						err = _err.(error)
+					err := recover()
+					if err == nil {
+						return
 					}
-					v.check(nil, err)
+					if s, ok := err.(string); ok {
+						err = errors.New(s)
+					}
+					v.check(nil, err.(error))
 				}()
 
+				fac := NewFactory()
 				authProvider := NewAuthProvider(v.client)
-				accountUuid, err := v.do(authProvider)
+				fac.RegisterProvider(authProvider)
+				ctx := NewContext(context.Background(), fac, nil)
+
+				accountUuid, err := v.do(ctx, authProvider)
 				v.check(accountUuid, err)
 
 				if v.client.calls != 1 {

@@ -103,6 +103,18 @@ func (p *Public) AccountUuid(ctx *Context) (*string, error) {
 		p.mux.Unlock()
 	}()
 
+	// try to resolve existing account uuid
+	// by checking whether private has been required before
+	private, err := ctx.GetRequired(TypePrivate)
+	if err == nil {
+		uuid := private.(*Private).AccountUuid()
+		p.accountUuid = &uuid
+		p.err = nil
+
+		cpy := uuid
+		return &cpy, nil
+	}
+
 	// call the client and keep the response
 	// in memory
 	resp, err := p.client.IsAuthenticated(ctx)
