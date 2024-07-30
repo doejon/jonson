@@ -129,6 +129,9 @@ func (c *Context) Require(inst reflect.Type) any {
 // to access previously initialized values _without_ explicitly
 // initializing one (calling Require).
 func (c *Context) GetRequired(inst reflect.Type) (any, error) {
+	if c.finalized {
+		return nil, fmt.Errorf("context is already finalized")
+	}
 	for _, v := range c.values {
 		if v.rt == inst && v.valid {
 			return v.val, nil
