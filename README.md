@@ -643,7 +643,7 @@ You can use the jonson.AuthProvider to create an authentication provider.
 IsAuthenticated: the account is logged in;
 IsAuthorized: the account is logged in _and_ has access rights to the called route.
 
-You will probably implement the client similar to this:
+You will probably implement the client similar to the example below:
 
 ```go
 
@@ -698,6 +698,18 @@ func(a *AuthClient) IsAuthorized(ctx *jonson.Context)(*string, error){
 
 ```
 
+For nested in-process-calls of methods (e.g. method A calls method B using generated remote procedure calls),
+a new context is being forked.
+The new context makes sure to only copy values from context A to context B that have been explicitly marked as shareable.
+Let's assume method A is private an method B is private:
+caller Alice can access method A but cannot access method B;
+Since method A now tries to call method B, we must make sure to _not_ provide jonson.Private to the context forked
+for the call towards method B;
+In case we would make private shareable, Alice (since she obtained access to method A) would implicitly gain access
+to method B. This could call a potential security risk.
+
+Public, however, can be shared between forked contexts: a logged in user will remain authenticated (logged in) across contexts.
+
 ## Testing
 
 Jonson provides a package `github.com/doejon/jonson/jonsontest` which allows you to quickly
@@ -749,6 +761,61 @@ t.Run("gets profile", func(t *testing.T) {
   // do something 10 seconds later
 })
 ```
+
+### Testing auth
+
+For projects relying on jonson.Private and jonson.Public for authorization and authentication, you can
+use jonsontest.AuthClientMock to mock callers towards your remote procedure calls.
+
+```go
+fac := jonson.NewFactory()
+
+// create a new auth client mock and pass the mock
+// towards the auth provider
+mock := jonsontest.NewAuthClientMock()
+fac.RegisterProvider(jonson.NewAuthProvider(mock))
+
+mtd := jonson.NewMethodHandler(fac, jonson.NewDebugSecret(), nil)
+mtd.RegisterSystem(&System{})
+
+// create a new account (super user in this case) which has access
+// to everything
+accSuperUser := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized()
+
+t.Run("accSuperUser can access set and get", func(t *testing.T) {
+  // provide the super user to the context boundary - the account will now be the calling account
+  // of your tests
+  NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
+    // call your generated remote procedure call methods
+    return GetV1(ctx)
+  })
+  NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
+    return SetV1(ctx)
+  })
+})
+```
+
+Feel free to create as many test accounts as necessary.
+The test account allows you to specify the behavior of the created account:
+
+```go
+// generate an account that is neither authenticated nor authorized
+acc1 := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3")
+
+// generate an authenticated account (logged in)
+acc2 := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authenticated()
+
+// generate an account that has access to everything
+acc3 := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized()
+
+// generate an account that has access to specific methods only
+acc4 := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized(&jonsontest.RpcMethod{
+  RpcHttpMethod: jonson.RpcHttpMethodPost,
+  method: "/user/get.v1"
+})
+```
+
+Authorized accounts are also authenticated (logged in). No need
 
 ## Code generation
 

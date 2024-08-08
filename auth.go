@@ -38,6 +38,18 @@ func NewAuthProvider(
 }
 
 // Private references endpoints which are private
+// NOTE:
+// The private provider must never be shared across contexts:
+// Assume requestor calling method /user/set.v1 which calls
+// /user/get.v1 internally; In case the requestor does have permission
+// to call /user/set.v1 but not /user/get.v1, we need to make sure to
+// re-evaluate the authorization permissions - hence, recreate a Private instance
+// upon in-memory method calls.
+// This is being ensured by calling context.CallMethod which will internally
+// fork a context and only copy those values to the new forked context
+// explicitly marked as shareable.
+// Therefore: never make Private shareable to keep the
+// authorization working as expected
 type Private struct {
 	accountUuid string
 }
@@ -63,6 +75,14 @@ type Public struct {
 	client      AuthClient
 
 	mux sync.Mutex
+
+	// Public is shareable:
+	// in case the requestor calls /user/get.v1 which is public and
+	// then requests /user/get-image.v1 which is public will
+	// still resolve to the same requestor. We can
+	// safe ourselves a round trip to the authenticator and
+	// pass the initial resolved value to the forked context
+	Shareable
 }
 
 var TypePublic = reflect.TypeOf((**Public)(nil)).Elem()
@@ -105,7 +125,7 @@ func (p *Public) AccountUuid(ctx *Context) (*string, error) {
 
 	// try to resolve existing account uuid
 	// by checking whether private has been required before
-	private, err := ctx.GetRequired(TypePrivate)
+	private, err := ctx.GetValue(TypePrivate)
 	if err == nil {
 		uuid := private.(*Private).AccountUuid()
 		p.accountUuid = &uuid

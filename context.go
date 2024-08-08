@@ -121,14 +121,14 @@ func (c *Context) Require(inst reflect.Type) any {
 	return v.val
 }
 
-// GetRequired returns a value that's been previously required;
+// GetValue returns a value that's been previously required;
 // In case the value does _not_ exist, an error
 // will be returned;
 // This method is usually not needed but can be necessary
 // in case you're implementing new providers in the need
 // to access previously initialized values _without_ explicitly
-// initializing one (calling Require).
-func (c *Context) GetRequired(inst reflect.Type) (any, error) {
+// initializing one (calling Require) checking for existance.
+func (c *Context) GetValue(inst reflect.Type) (any, error) {
 	if c.finalized {
 		return nil, fmt.Errorf("context is already finalized")
 	}

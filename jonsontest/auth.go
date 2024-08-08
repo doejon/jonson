@@ -1,6 +1,7 @@
 package jonsontest
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/doejon/jonson"
@@ -15,6 +16,9 @@ type AuthClientMock struct {
 
 	// logged ins:  map[accountUuid]
 	authenticated map[string]struct{}
+
+	// just a watchdog for tests to not have the same account created twice
+	accounts map[string]struct{}
 }
 
 func NewAuthClientMock() *AuthClientMock {
@@ -22,6 +26,8 @@ func NewAuthClientMock() *AuthClientMock {
 		methodAccess:  map[string][]*RpcMethod{},
 		fullAccess:    map[string]struct{}{},
 		authenticated: map[string]struct{}{},
+
+		accounts: map[string]struct{}{},
 	}
 }
 
@@ -30,6 +36,13 @@ var _ jonson.AuthClient = (&AuthClientMock{})
 type Account struct {
 	uuid string // the secret that will identify the account during tests
 	mock *AuthClientMock
+
+	// We need to pass the test account down to
+	// other context forks:
+	// usually, an authentication/authorization information resides
+	// in the http request headers (cookiers, bearer, ...);
+	// those values will be shared between request contexts as well.
+	jonson.Shareable
 }
 
 var typeTestAccount = reflect.TypeOf((**Account)(nil)).Elem()
@@ -57,8 +70,15 @@ func (a *Account) Authorized(methods ...*RpcMethod) *Account {
 	a.Authenticated()
 
 	if len(methods) <= 0 {
+		if len(a.mock.methodAccess[a.uuid]) > 0 {
+			panic(fmt.Sprintf("do not mix full access and partial access to methods; either call Authorized with a list of methods or none; The account (%s) already possesses partial access", a.uuid))
+		}
 		a.mock.fullAccess[a.uuid] = struct{}{}
 		return a
+	}
+
+	if _, ok := a.mock.fullAccess[a.uuid]; ok {
+		panic(fmt.Sprintf("do not mix full access and partial access to methods; either call Authorized with a list of methods or none; the account (%s) already possesses full access to all methods", a.uuid))
 	}
 
 	for _, v := range methods {
@@ -71,6 +91,10 @@ func (a *Account) Authorized(methods ...*RpcMethod) *Account {
 
 // WithAuthenticated creates a new user which is authenticated (logged in)
 func (t *AuthClientMock) NewAccount(uuid string) *Account {
+	if _, ok := t.accounts[uuid]; ok {
+		panic(fmt.Sprintf("do not use create test accounts with the same uuid '%s'", uuid))
+	}
+	t.accounts[uuid] = struct{}{}
 	return &Account{
 		mock: t,
 		uuid: uuid,
@@ -78,7 +102,7 @@ func (t *AuthClientMock) NewAccount(uuid string) *Account {
 }
 
 func (t *AuthClientMock) IsAuthenticated(ctx *jonson.Context) (*string, error) {
-	existing, err := ctx.GetRequired(typeTestAccount)
+	existing, err := ctx.GetValue(typeTestAccount)
 	if err != nil {
 		return nil, nil
 	}
@@ -94,7 +118,7 @@ func (t *AuthClientMock) IsAuthenticated(ctx *jonson.Context) (*string, error) {
 }
 
 func (t *AuthClientMock) IsAuthorized(ctx *jonson.Context) (*string, error) {
-	existing, err := ctx.GetRequired(typeTestAccount)
+	existing, err := ctx.GetValue(typeTestAccount)
 	if err != nil {
 		return nil, nil
 	}

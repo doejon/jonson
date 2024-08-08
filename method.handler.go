@@ -255,16 +255,16 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		}
 
 		// fail
-		panic(errors.New("method handler:" + handlerName + " requires unknown type " + rti.String()))
+		panic(errors.New("method handler: " + handlerName + " requires unknown type " + rti.String()))
 	}
 
 	// check return types
 	if rt.NumOut() < 1 || rt.NumOut() > 2 {
-		panic(errors.New("method handler:" + handlerName + " may only return one or two arguments"))
+		panic(errors.New("method handler: " + handlerName + " may only return one or two arguments"))
 	}
 	et := rt.Out(rt.NumOut() - 1)
 	if et.Kind() != reflect.Interface || et.Name() != "error" || et.PkgPath() != "" {
-		panic(errors.New("method handler:" + handlerName + " must return error interface as last argument"))
+		panic(errors.New("method handler: " + handlerName + " must return error interface as last argument"))
 	}
 
 	m.endpoints[endpoint] = apiEndpoint{

@@ -151,3 +151,121 @@ func TestAuth(t *testing.T) {
 	})
 
 }
+
+// System will be used to test API calls which are nested
+type System struct {
+}
+
+func (s *System) GetV1(ctx *jonson.Context, caller *jonson.Private) error {
+	return nil
+}
+
+func GetV1(ctx *jonson.Context) error {
+	_, err := ctx.CallMethod("system/get.v1", jonson.RpcHttpMethodPost, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// SetV1 calls GetV1
+func (s *System) SetV1(ctx *jonson.Context, caller *jonson.Private) error {
+	err := GetV1(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func SetV1(ctx *jonson.Context) error {
+	_, err := ctx.CallMethod("system/set.v1", jonson.RpcHttpMethodPost, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func TestAuthNestedCalls(t *testing.T) {
+
+	mock := NewAuthClientMock()
+	fac := jonson.NewFactory()
+	fac.RegisterProvider(jonson.NewAuthProvider(mock))
+
+	mtd := jonson.NewMethodHandler(fac, jonson.NewDebugSecret(), nil)
+	mtd.RegisterSystem(&System{})
+
+	accSuperUser := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized()
+	accLimited := mock.NewAccount("efe59f3f-ed42-4534-8db1-3f7f7e94752e").Authorized(&RpcMethod{
+		HttpMethod: jonson.RpcHttpMethodPost,
+		Method:     "system/set.v1",
+	})
+
+	accLimited2 := mock.NewAccount("1ce976a0-9c0a-4969-b21a-c3c531ccbafe").Authorized(&RpcMethod{
+		HttpMethod: jonson.RpcHttpMethodPost,
+		Method:     "system/get.v1",
+	})
+
+	t.Run("accSuperUser can access set and get", func(t *testing.T) {
+		NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
+			return GetV1(ctx)
+		})
+		NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
+			return SetV1(ctx)
+		})
+	})
+
+	t.Run("accLimited2 can call get but not set", func(t *testing.T) {
+		NewContextBoundary(t, fac, mtd, accLimited2.Provide).MustRun(func(ctx *jonson.Context) error {
+			return GetV1(ctx)
+		})
+
+		err := NewContextBoundary(t, fac, mtd, accLimited2.Provide).Run(func(ctx *jonson.Context) error {
+			return SetV1(ctx)
+		})
+		if err == nil {
+			t.Fatal("expected err != nil")
+		}
+		if err.(*jonson.Error).Code != jonson.ErrUnauthorized.Code {
+			t.Fatalf("expected err to be unauthorized, got: %s", err)
+		}
+	})
+
+	t.Run("accLimited can not access both since set also calls get", func(t *testing.T) {
+		err := NewContextBoundary(t, fac, mtd, accLimited.Provide).Run(func(ctx *jonson.Context) error {
+			return GetV1(ctx)
+		})
+		if err == nil {
+			t.Fatal("expected err != nil")
+		}
+		if err.(*jonson.Error).Code != jonson.ErrUnauthorized.Code {
+			t.Fatalf("expected err to be unauthorized, got: %s", err)
+		}
+
+		err = NewContextBoundary(t, fac, mtd, accLimited.Provide).Run(func(ctx *jonson.Context) error {
+			return SetV1(ctx)
+		})
+		if err == nil {
+			t.Fatal("expected err != nil")
+		}
+		if err.(*jonson.Error).Code != jonson.ErrUnauthorized.Code {
+			t.Fatalf("expected err to be unauthorized, got: %s", err)
+		}
+	})
+
+	t.Run("accLimited can access both get and set after authorization has been granted", func(t *testing.T) {
+		accLimited.Authorized(&RpcMethod{
+			HttpMethod: jonson.RpcHttpMethodPost,
+			Method:     "system/get.v1",
+		})
+		NewContextBoundary(t, fac, mtd, accLimited.Provide).MustRun(func(ctx *jonson.Context) error {
+			return GetV1(ctx)
+		})
+
+		NewContextBoundary(t, fac, mtd, accLimited.Provide).MustRun(func(ctx *jonson.Context) error {
+			return SetV1(ctx)
+		})
+
+	})
+}
