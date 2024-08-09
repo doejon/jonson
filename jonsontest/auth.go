@@ -51,9 +51,15 @@ func (a *Account) Provide(ctx *jonson.Context) {
 	ctx.StoreValue(typeTestAccount, a)
 }
 
+// Authenticated makes the account authenticated (logged in)
 func (a *Account) Authenticated() *Account {
 	a.mock.authenticated[a.uuid] = struct{}{}
 	return a
+}
+
+// Uuid returns the account's uuid
+func (a *Account) Uuid() string {
+	return a.uuid
 }
 
 type RpcMethod struct {
