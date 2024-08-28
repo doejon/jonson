@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/doejon/jonson"
 )
@@ -181,7 +182,7 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 		}
 
 		// only take those into account that equal package name
-		if strings.ToLower(objIdent.Name) != pkgName {
+		if firstToLower(objIdent.Name) != pkgName {
 			continue
 		}
 		systemName := jonson.ToKebabCase(objIdent.Name)
@@ -276,6 +277,18 @@ func %s(ctx *jonson.Context%s) %s {
 	fContent := prependHeader(wtr, pkgName, imports...)
 
 	return writeFile(fNameProcedure, fContent)
+}
+
+func firstToLower(s string) string {
+
+	if len(s) == 0 {
+		return s
+	}
+
+	r := []rune(s)
+	r[0] = unicode.ToLower(r[0])
+
+	return string(r)
 }
 
 func writeTypesFile(fset *token.FileSet, pkgName string, listTypes []*ast.Object) error {
