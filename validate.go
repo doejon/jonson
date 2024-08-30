@@ -1,5 +1,10 @@
 package jonson
 
+import (
+	"fmt"
+	"reflect"
+)
+
 type ValidatedParams interface {
 	JonsonValidate(validator *Validator)
 }
@@ -23,6 +28,7 @@ type validatorError struct {
 	added     bool
 
 	path    []string
+	index   *int
 	debug   string
 	code    int
 	message string
@@ -100,11 +106,32 @@ func (e *validatorError) Validate(validateable ValidatedParams) *Error {
 	return err
 }
 
+type validatorIndex struct {
+	index int
+}
+
+func (e *Validator) Index(idx int) *validatorIndex {
+	return &validatorIndex{
+		index: idx,
+	}
+}
+
 // Path sets the current path that's been validated
-func (e *Validator) Path(_path ...string) *validatorError {
+func (e *Validator) Path(_path ...any) *validatorError {
+	convertedPaths := make([]string, len(_path))
+	for i, v := range _path {
+		switch x := v.(type) {
+		case string:
+			convertedPaths[i] = x
+		case *validatorIndex:
+			convertedPaths[i] = fmt.Sprintf("[%d]", x.index)
+		default:
+			panic(fmt.Sprintf("unsupported path type: %v; string, validator.Index() are the only supported types", reflect.TypeOf(v)))
+		}
+	}
 
 	return &validatorError{
-		path:      append(e.basePath, _path...),
+		path:      append(e.basePath, convertedPaths...),
 		validator: e,
 
 		code:    ErrInvalidParams.Code,

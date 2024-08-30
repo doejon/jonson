@@ -7,9 +7,10 @@ import (
 )
 
 type Profile struct {
-	Name          string `json:"name"`
-	Image         *Image `json:"image,omitempty"`
-	ImageRequired Image  `json:"imageRequired"`
+	Name          string   `json:"name"`
+	Image         *Image   `json:"image,omitempty"`
+	ImageRequired Image    `json:"imageRequired"`
+	ImageArr      []*Image `json:"imageArray"`
 }
 
 func (p *Profile) JonsonValidate(v *Validator) {
@@ -22,6 +23,10 @@ func (p *Profile) JonsonValidate(v *Validator) {
 	}
 
 	v.Path("imageRequired").Validate(&p.ImageRequired)
+
+	for idx, img := range p.ImageArr {
+		v.Path("imageArr", v.Index(idx)).Validate(img)
+	}
 }
 
 type Image struct {
@@ -54,6 +59,7 @@ func TestValidate(t *testing.T) {
 			Name:          "Silvio",
 			Image:         validImage(),
 			ImageRequired: *i,
+			ImageArr:      []*Image{validImage(), validImage()},
 		}
 	}
 
@@ -117,6 +123,31 @@ func TestValidate(t *testing.T) {
 				}
 				if paths[1] != "url" {
 					return fmt.Errorf("expected 'url' to be second in paths")
+				}
+				return nil
+			},
+		},
+		{
+			name: "image in array invalid",
+			data: func() *Profile {
+				out := validProfile()
+				out.ImageArr[1].URL = ""
+				return out
+			},
+			inspect: func(e *Error) error {
+				if e == nil {
+					return fmt.Errorf("error expected")
+				}
+				paths := e.Data.Details[0].Data.Path
+
+				if paths[0] != "imageArr" {
+					return fmt.Errorf("expected 'requiredImage' to be first in paths")
+				}
+				if paths[1] != "[1]" {
+					return fmt.Errorf("expected 'index' to second in paths")
+				}
+				if paths[2] != "url" {
+					return fmt.Errorf("expected 'url' to be third in paths")
 				}
 				return nil
 			},
