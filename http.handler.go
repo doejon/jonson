@@ -230,7 +230,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		case ErrParse.Code:
 			httpStatus = http.StatusBadRequest
 		case ErrUnauthorized.Code:
-			fallthrough
+			httpStatus = http.StatusUnauthorized
 		case ErrUnauthenticated.Code:
 			httpStatus = http.StatusForbidden
 		case ErrMethodNotFound.Code:

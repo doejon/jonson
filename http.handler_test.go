@@ -206,7 +206,7 @@ func TestHttpHandler(t *testing.T) {
 		if errResult.Code != ErrUnauthorized.Code {
 			t.Fatalf("result code to match unauthorized, got: %d", errResult.Code)
 		}
-		if wtr.Code != http.StatusForbidden {
+		if wtr.Code != http.StatusUnauthorized {
 			t.Fatalf("expected http result code to equal status forbidden, got: %d", wtr.Code)
 		}
 	})
