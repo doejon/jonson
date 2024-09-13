@@ -108,8 +108,7 @@ func NewHttpRpcHandler(methodHandler *MethodHandler, path string) *HttpRpcHandle
 
 // Handle will handle an incoming http request
 func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
-	// check for prefix calls
-	// check for /api/rpc request
+	// check for exact matches
 	if req.URL.Path != h.path {
 		return false
 	}
@@ -201,7 +200,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	method := RpcHttpMethod(req.Method)
 
 	if err != nil {
-		h.methodHandler.logger.Warn("rpc http handler: read error", "error", err)
+		h.methodHandler.logger.Warn("http method handler: read error", "error", err)
 		resp = NewRpcErrorResponse(nil, ErrParse)
 	} else {
 		resp = h.methodHandler.processRpcMessage(RpcSourceHttp, method, req, w, nil, &RpcRequest{
