@@ -241,6 +241,10 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 
 	// single response for these calls allowed only
 	b, _ := json.Marshal(dataToMarshal)
+	// make sure we're responding with application/json for everything
+	if len(b) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(httpStatus)
 	w.Write(b)
 	return true
