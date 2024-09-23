@@ -12,3 +12,10 @@ package jonson
 type Shareable interface {
 	_isShareable()
 }
+
+// ShareableAcrossImpersonation marks
+// provided entities as shareable across the impersonation
+// context.
+type ShareableAcrossImpersonation interface {
+	_isShareableAcrossImpersonation()
+}

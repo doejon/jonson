@@ -153,6 +153,10 @@ func (p *Public) AccountUuid(ctx *Context) (*string, error) {
 func (p *AuthProvider) NewPrivate(ctx *Context) *Private {
 	resp, err := p.client.IsAuthorized(ctx)
 	if err != nil {
+		// do we have a jonson error returned?
+		if casted, ok := err.(*Error); ok {
+			panic(casted)
+		}
 		panic(fmt.Sprintf("newPrivate: %s", err))
 	}
 	if resp == nil {

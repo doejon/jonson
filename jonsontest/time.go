@@ -10,6 +10,7 @@ import (
 type MockTime interface {
 	jonson.Time
 	jonson.Shareable
+	jonson.ShareableAcrossImpersonation
 	SetNow(tm time.Time)
 	AddDate(years int, months int, days int) MockTime
 	Add(dur time.Duration) MockTime
@@ -17,6 +18,7 @@ type MockTime interface {
 
 type FrozenTime struct {
 	jonson.Shareable
+	jonson.ShareableAcrossImpersonation
 	instant time.Time
 	sleep   func(time.Duration)
 }
@@ -75,6 +77,7 @@ func (f *FrozenTime) WithSleep(slp func(time.Duration)) *FrozenTime {
 // fixed reference.
 type ReferenceTime struct {
 	jonson.Shareable
+	jonson.ShareableAcrossImpersonation
 	now   time.Time
 	ref   time.Time
 	sleep func(time.Duration)

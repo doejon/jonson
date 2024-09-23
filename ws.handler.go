@@ -82,6 +82,7 @@ func (wb *WebsocketHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 
 type WSClient struct {
 	Shareable
+	ShareableAcrossImpersonation
 	ws            *WebsocketHandler
 	methodHandler *MethodHandler
 	conn          *websocket.Conn

@@ -49,6 +49,7 @@ func (t *TimeProvider) NewTime(ctx *Context) Time {
 // You can mock this interface within your tests.
 type Time interface {
 	Shareable
+	ShareableAcrossImpersonation
 	Now() time.Time
 	Sleep(time.Duration)
 }
@@ -56,6 +57,7 @@ type Time interface {
 // RealTime implements time
 type RealTime struct {
 	Shareable
+	ShareableAcrossImpersonation
 }
 
 // type safeguard

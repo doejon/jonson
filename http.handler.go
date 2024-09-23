@@ -18,6 +18,7 @@ var TypeHttpRequest = reflect.TypeOf((**HttpRequest)(nil)).Elem()
 
 type HttpRequest struct {
 	Shareable
+	ShareableAcrossImpersonation
 	*http.Request
 }
 
@@ -34,6 +35,7 @@ func RequireHttpRequest(ctx *Context) *HttpRequest {
 
 type HttpResponseWriter struct {
 	Shareable
+	ShareableAcrossImpersonation
 	http.ResponseWriter
 }
 

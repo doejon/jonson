@@ -24,14 +24,18 @@ func RequireSecret(ctx *Context) Secret {
 
 type Secret interface {
 	Shareable
+	ShareableAcrossImpersonation
 	Encode(in string) string
 	Decode(in string) (string, error)
 }
 
 type AESSecret struct {
 	Shareable
+	ShareableAcrossImpersonation
 	aesCypher []byte
 }
+
+var _ Secret = (&AESSecret{})
 
 func NewAESSecret(aesKeyHex string) *AESSecret {
 	aesCypher, err := hex.DecodeString(aesKeyHex)
@@ -99,7 +103,10 @@ func (e *AESSecret) Decode(in string) (string, error) {
 // error messages during development.
 type DebugSecret struct {
 	Shareable
+	ShareableAcrossImpersonation
 }
+
+var _ Secret = (&DebugSecret{})
 
 func NewDebugSecret() *DebugSecret {
 	return &DebugSecret{}

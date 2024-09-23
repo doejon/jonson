@@ -9,6 +9,7 @@ import (
 
 type mockTime struct {
 	Shareable
+	ShareableAcrossImpersonation
 	now time.Time
 }
 

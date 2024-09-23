@@ -169,6 +169,41 @@ func GetV1(ctx *jonson.Context) error {
 	return nil
 }
 
+type GetNestedV1Params struct {
+	jonson.Params
+	AccountUuids []string
+}
+
+type GetNestedV1Result struct {
+	AccountUuid string
+}
+
+func (s *System) GetNestedV1(ctx *jonson.Context, caller *jonson.Private, params *GetNestedV1Params) (*GetNestedV1Result, error) {
+	if len(params.AccountUuids) <= 0 {
+		return &GetNestedV1Result{
+			AccountUuid: caller.AccountUuid(),
+		}, nil
+	}
+	var result *GetNestedV1Result
+	var err error
+	err = jonson.RequireImpersonator(ctx).Impersonate(params.AccountUuids[0], func(ctx *jonson.Context) error {
+		result, err = GetNestedV1(ctx, &GetNestedV1Params{
+			AccountUuids: params.AccountUuids[1:],
+		})
+		return err
+	})
+	return result, err
+}
+
+func GetNestedV1(ctx *jonson.Context, params *GetNestedV1Params) (*GetNestedV1Result, error) {
+	out, err := ctx.CallMethod("system/get-nested.v1", jonson.RpcHttpMethodPost, params, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return out.(*GetNestedV1Result), nil
+}
+
 // SetV1 calls GetV1
 func (s *System) SetV1(ctx *jonson.Context, caller *jonson.Private) error {
 	err := GetV1(ctx)
@@ -265,6 +300,122 @@ func TestAuthNestedCalls(t *testing.T) {
 
 		NewContextBoundary(t, fac, mtd, accLimited.Provide).MustRun(func(ctx *jonson.Context) error {
 			return SetV1(ctx)
+		})
+
+	})
+}
+
+func TestAuthImpersonation(t *testing.T) {
+
+	mock := NewAuthClientMock()
+	fac := jonson.NewFactory()
+	fac.RegisterProvider(jonson.NewAuthProvider(mock))
+	fac.RegisterProvider(jonson.NewImpersonatorProvider())
+
+	mtd := jonson.NewMethodHandler(fac, jonson.NewDebugSecret(), nil)
+	mtd.RegisterSystem(&System{})
+
+	alice := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized()
+	bob := mock.NewAccount("efe59f3f-ed42-4534-8db1-3f7f7e94752e").Authorized()
+	charly := mock.NewAccount("1ce976a0-9c0a-4969-b21a-c3c531ccbafe").Authorized()
+	drew := mock.NewAccount("8fae1b14-a617-4f73-ad53-58ef3c90d679")
+
+	t.Run("getNested returns caller", func(t *testing.T) {
+		NewContextBoundary(t, fac, mtd, alice.Provide).MustRun(func(ctx *jonson.Context) error {
+			out, err := GetNestedV1(ctx, &GetNestedV1Params{})
+			if err != nil {
+				return err
+			}
+			if out.AccountUuid != alice.uuid {
+				return fmt.Errorf("expected account uuid %s, got %s", alice.uuid, out.AccountUuid)
+			}
+			return nil
+		})
+	})
+
+	t.Run("getNested returns error since alice cannot impersonate bob", func(t *testing.T) {
+		err := NewContextBoundary(t, fac, mtd, alice.Provide).Run(func(ctx *jonson.Context) error {
+			_, err := GetNestedV1(ctx, &GetNestedV1Params{
+				AccountUuids: []string{bob.uuid, charly.uuid},
+			})
+			return err
+		})
+		if err == nil {
+			t.Fatal("expected err not to be nil")
+		}
+		if err.(*jonson.Error).Code != jonson.ErrUnauthorized.Code {
+			t.Fatalf("expected unauthorized error, got. %v", err)
+		}
+	})
+
+	t.Run("getNested returns error since bob cannot impersonate charly", func(t *testing.T) {
+		alice.CanImpersonate(bob)
+		err := NewContextBoundary(t, fac, mtd, alice.Provide).Run(func(ctx *jonson.Context) error {
+			_, err := GetNestedV1(ctx, &GetNestedV1Params{
+				AccountUuids: []string{bob.uuid, charly.uuid},
+			})
+			return err
+		})
+		if err == nil {
+			t.Fatal("expected err not to be nil")
+		}
+		if err.(*jonson.Error).Code != jonson.ErrUnauthorized.Code {
+			t.Fatalf("expected unauthorized error, got. %v", err)
+		}
+	})
+
+	t.Run("getNested returns charly's uuid since alice can impersonate bob can impersonate charly", func(t *testing.T) {
+		alice.CanImpersonate(bob)
+		bob.CanImpersonate(charly)
+
+		NewContextBoundary(t, fac, mtd, alice.Provide).MustRun(func(ctx *jonson.Context) error {
+			out, err := GetNestedV1(ctx, &GetNestedV1Params{
+				AccountUuids: []string{bob.uuid, charly.uuid},
+			})
+			if err != nil {
+				return err
+			}
+			if out.AccountUuid != charly.uuid {
+				return fmt.Errorf("expected account uuid %s, got %s", charly.uuid, out.AccountUuid)
+			}
+			return nil
+		})
+	})
+
+	t.Run("getNested returns not authorized bcs drew cannot access GetNestedV1", func(t *testing.T) {
+		alice.CanImpersonate(bob)
+		bob.CanImpersonate(drew)
+
+		err := NewContextBoundary(t, fac, mtd, alice.Provide).Run(func(ctx *jonson.Context) error {
+			_, err := GetNestedV1(ctx, &GetNestedV1Params{
+				AccountUuids: []string{bob.uuid, drew.uuid},
+			})
+			return err
+		})
+		if err == nil {
+			t.Fatal("expected err not to be nil")
+		}
+		if err.(*jonson.Error).Code != jonson.ErrUnauthorized.Code {
+			t.Fatalf("expected unauthorized error, got. %v", err)
+		}
+	})
+
+	t.Run("getNested returns drews uuid after drew was granted permission to access GetNestedV1", func(t *testing.T) {
+		alice.CanImpersonate(bob)
+		bob.CanImpersonate(drew)
+		drew.Authorized()
+
+		NewContextBoundary(t, fac, mtd, alice.Provide).MustRun(func(ctx *jonson.Context) error {
+			out, err := GetNestedV1(ctx, &GetNestedV1Params{
+				AccountUuids: []string{bob.uuid, drew.uuid},
+			})
+			if err != nil {
+				return err
+			}
+			if out.AccountUuid != drew.uuid {
+				return fmt.Errorf("expected account uuid %s, got %s", charly.uuid, out.AccountUuid)
+			}
+			return nil
 		})
 
 	})

@@ -19,6 +19,8 @@ type testAuthClient struct {
 	calls int
 }
 
+var _ AuthClient = (&testAuthClient{})
+
 func (t *testAuthClient) IsAuthenticated(*Context) (*string, error) {
 	t.calls++
 	cpy := testAccountUuid
@@ -295,7 +297,6 @@ func TestAuthentication(t *testing.T) {
 					t.Fatal("client was called more than once")
 				}
 			}()
-
 		})
 	}
 }

@@ -279,6 +279,9 @@ type Time struct {
 
 Time will now be passed between contexts.
 
+In case you also want to make your provided values shareable across impersonation calls, mark them with `jonson.ShareableAcrossImpersonation`. Only values that are explicitly marked with `jonson.ShareableAcrossImpersonation` will
+be taken across the impersonation boundaries.
+
 Some context values want to be finalized. Jonson allows you to specify a `Finalize(err[]error)` method on your provided types.
 In case a finalize method is found, it will be called _after_ the remote procedure call within the context has been completed.
 You can e.g. clean up certain open connections within Finalize().
@@ -615,6 +618,51 @@ func (a *Authentication) MeV1(ctx *jonson.Context, private *Private) (*MeV1Resul
   return &MeV1Result {
     Name: "Silvio"
   }, nil
+}
+```
+
+## Impersonation
+
+In certain cases, you might have to impersonate another caller: Alice needs to perform certain operation in the scope
+of user Bob. Therefore, you can use the `Impersonator`. By providing the `jonson.ImpersonatorProvider()` to the
+factory during initialization, you can use jonson's impersonator to make calls on behalf of other accounts.
+The impersonator can impersonate multiple accounts:
+In case Alice calls on behalf of Bob which calls in behalf of Charly, the Impersonator will create a new
+context for all three calls; `Impersonated`, which is stored in the context, will take care to trace
+all nested impersonations and make them available with a call towards `impersonated.TracedAccountUuids()`. The
+impersonation of the current scope is accessible through `impersonated.AccountUuid()`.
+
+```go
+fac := jonson.NewFactory()
+fac.RegisterProvider(jonson.NewImpersonatorProvider())
+
+type DoOnUsersBehalfV1Params struct {
+  OtherAccountUuid uuid
+}
+
+func (a *Authentication) DoOnUsersBehalfV1(ctx *jonson.Context, params *DoOnUsersBehalfV1Params) error {
+  return jonson.RequireImpersonator(params).Impersonate(params.OtherAccountUuid, func(ctx *jonson.Context) error {
+    // perform any logic inside the scope of OtherAccountUuid
+    return nil
+  })
+}
+```
+
+Within your `IsAuthenticated(ctx)` and `IsAuthorized(ctx)` implementations, you should access the impersonated
+values which have or have not been set by a function:
+
+```go
+func IsAuthorized(ctx *jonson.Context)(*string, error){
+  impersonated := jonson.RequireOptionalImpersonated(ctx)
+  if impersonated != nil {
+    // perform the logic for impersonated accounts
+    allImpersonatedUuids := impersonated.TracedAccountUuids()
+    currentImpersonatedAccount := impersonated.AccountUuid()
+    return nil, nil
+  }
+  // perform the logic for non-impersonated accounts
+
+  return nil, nil
 }
 ```
 

@@ -17,15 +17,20 @@ type AuthClientMock struct {
 	// logged ins:  map[accountUuid]
 	authenticated map[string]struct{}
 
+	// allow an account to impersonate another account
+	// map[accountUuid]map[allowedAccountToBeImpersonated]struct{}
+	canImpersonate map[string]map[string]struct{}
+
 	// just a watchdog for tests to not have the same account created twice
 	accounts map[string]struct{}
 }
 
 func NewAuthClientMock() *AuthClientMock {
 	return &AuthClientMock{
-		methodAccess:  map[string][]*RpcMethod{},
-		fullAccess:    map[string]struct{}{},
-		authenticated: map[string]struct{}{},
+		methodAccess:   map[string][]*RpcMethod{},
+		fullAccess:     map[string]struct{}{},
+		authenticated:  map[string]struct{}{},
+		canImpersonate: map[string]map[string]struct{}{},
 
 		accounts: map[string]struct{}{},
 	}
@@ -43,6 +48,7 @@ type Account struct {
 	// in the http request headers (cookiers, bearer, ...);
 	// those values will be shared between request contexts as well.
 	jonson.Shareable
+	jonson.ShareableAcrossImpersonation
 }
 
 var typeTestAccount = reflect.TypeOf((**Account)(nil)).Elem()
@@ -54,6 +60,21 @@ func (a *Account) Provide(ctx *jonson.Context) {
 // Authenticated makes the account authenticated (logged in)
 func (a *Account) Authenticated() *Account {
 	a.mock.authenticated[a.uuid] = struct{}{}
+	return a
+}
+
+// CanImpersonate allows the account to
+// impersonate given accounts. In case CanImpersonate is called multiple times,
+// the accounts will be added to the list of possible impersonation accounts
+func (a *Account) CanImpersonate(accounts ...*Account) *Account {
+	existing := a.mock.canImpersonate[a.uuid]
+	if existing == nil {
+		existing = map[string]struct{}{}
+		a.mock.canImpersonate[a.uuid] = existing
+	}
+	for _, v := range accounts {
+		existing[v.uuid] = struct{}{}
+	}
 	return a
 }
 
@@ -107,6 +128,38 @@ func (t *AuthClientMock) NewAccount(uuid string) *Account {
 	}
 }
 
+// checkImpersonation returns the account uuid to be impersonated.
+// In case no impersonation is taking place, the returned value is the main account and nil.
+// in case of a missing impersonation requirement, the function returns an error
+func (t *AuthClientMock) checkImpersonation(ctx *jonson.Context, mainAccount string) (*string, error) {
+	imp := jonson.RequireOptionalImpersonated(ctx)
+	if imp == nil {
+		// no impersonation set
+		return &mainAccount, nil
+	}
+	allAccounts := append([]string{mainAccount}, imp.TracedAccountUuids()...)
+	if len(allAccounts) < 2 {
+		// with the main account, we need at least one other account
+		// to make impersonation work properly
+		panic("impersonation requires at least one account to be present")
+	}
+	for i := 0; i < len(allAccounts)-1; i++ {
+		current := allAccounts[i]
+		next := allAccounts[i+1]
+		allowedImpersonations := t.canImpersonate[current]
+		if allowedImpersonations != nil {
+			if _, ok := allowedImpersonations[next]; ok {
+				continue
+			}
+		}
+		return nil, jonson.ErrUnauthorized.CloneWithData(&jonson.ErrorData{
+			Debug: fmt.Sprintf("account '%s' cannot impersonate account '%s'; Did you forget to call account.CanImpersonate()?", current, next),
+		})
+	}
+	impersonatedAccount := imp.AccountUuid()
+	return &impersonatedAccount, nil
+}
+
 func (t *AuthClientMock) IsAuthenticated(ctx *jonson.Context) (*string, error) {
 	existing, err := ctx.GetValue(typeTestAccount)
 	if err != nil {
@@ -119,8 +172,7 @@ func (t *AuthClientMock) IsAuthenticated(ctx *jonson.Context) (*string, error) {
 	if !ok {
 		return nil, nil
 	}
-
-	return &uuid, nil
+	return t.checkImpersonation(ctx, uuid)
 }
 
 func (t *AuthClientMock) IsAuthorized(ctx *jonson.Context) (*string, error) {
@@ -128,7 +180,12 @@ func (t *AuthClientMock) IsAuthorized(ctx *jonson.Context) (*string, error) {
 	if err != nil {
 		return nil, nil
 	}
-	uuid := existing.(*Account).uuid
+	_uuid, err := t.checkImpersonation(ctx, existing.(*Account).uuid)
+	if err != nil {
+		return nil, err
+	}
+	uuid := *_uuid
+
 	// first, let's check if the account has been authorized to call all methods
 	_, ok := t.fullAccess[uuid]
 	if ok {
