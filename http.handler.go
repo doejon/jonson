@@ -231,7 +231,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		case ErrParse.Code:
 			httpStatus = http.StatusBadRequest
 		case ErrUnauthorized.Code:
-			httpStatus = http.StatusUnauthorized
+			fallthrough // do not use 401 -> triggers basic auth
 		case ErrUnauthenticated.Code:
 			httpStatus = http.StatusForbidden
 		case ErrMethodNotFound.Code:
