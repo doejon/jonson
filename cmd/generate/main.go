@@ -250,7 +250,7 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 		fmt.Fprintf(
 			wtr,
 			`
-// %s:%d -- %s
+// %s -- %s
 func %s(ctx *jonson.Context%s) %s {
 	%s := ctx.CallMethod("%s", %s, %s, nil)
 	if err != nil {
@@ -260,7 +260,7 @@ func %s(ctx *jonson.Context%s) %s {
 	return %s
 }
 `,
-			pos.Filename, pos.Line, object.Name,
+			pos.Filename, object.Name,
 			object.Name, params, result,
 			vAssign, methodName, rpcHttpMethod, parArg,
 			errRet,
