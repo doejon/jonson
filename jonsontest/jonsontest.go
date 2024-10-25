@@ -16,6 +16,8 @@ type TestContextBoundary struct {
 	methodHandler *jonson.MethodHandler
 	factory       *jonson.Factory
 	t             *testing.T
+
+	stackInspector []func(s string)
 }
 
 // NewTestContext returns a new test context
@@ -44,7 +46,8 @@ func (t *TestContextBoundary) Run(fn func(ctx *jonson.Context) error, recovr ...
 	defer func() {
 		if r := recover(); r != nil {
 			stack := string(debug.Stack())
-			for _, v := range recovr {
+			inspectors := append(t.stackInspector, recovr...)
+			for _, v := range inspectors {
 				v(stack)
 			}
 			err = getRecoverError(r)
@@ -65,6 +68,13 @@ func (t *TestContextBoundary) MustRun(fn func(ctx *jonson.Context) error, recovr
 	if err != nil {
 		t.t.Fatal(err)
 	}
+}
+
+// WithStackInspector allows you to specify a stack inspector which will be enabled for
+// any of the run calls. You can optionally also pass a second argument to Run() or MustRun()
+func (t *TestContextBoundary) WithStackInspector(recovr ...func(stack string)) *TestContextBoundary {
+	t.stackInspector = append(t.stackInspector, recovr...)
+	return t
 }
 
 type NewTestContextBoundaryOpt func(*jonson.Context)
