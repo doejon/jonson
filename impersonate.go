@@ -128,5 +128,15 @@ func (i *Impersonator) Impersonate(accountUuid string, fn func(ctx *Context) err
 	imp := newImpersonated(existingImpersonation, accountUuid)
 	newContext.StoreValue(TypeImpersonated, imp)
 
+	// is the account allowed to impersonate the other account?
+	pub := RequirePublic(newContext)
+	impersonatedAccountUuid, err := pub.AccountUuid(newContext)
+	if err != nil {
+		return err
+	}
+	if impersonatedAccountUuid == nil {
+		return ErrUnauthorized
+	}
+
 	return fn(newContext)
 }
