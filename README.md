@@ -621,6 +621,29 @@ func (a *Authentication) MeV1(ctx *jonson.Context, private *Private) (*MeV1Resul
 }
 ```
 
+## Goroutines
+
+In case you need to share a context across goroutines, you either make sure to
+
+- instantiate _all_ necessary types beforehand (RequireXXX) or
+- create a clone of your current context
+
+The RequireA() statement could potentially call RequireB() during instantiation.
+Therefore, we cannot make the Require() statement thread-safe.
+
+In case you would have a context in two or more goroutines trying to require the same
+type twice, the circular dependency checker would trigger a panic.
+
+To avoid this issue, pass a clone of your context down to a goroutine.
+
+```go
+clone := ctx.Clone()
+
+go func(){
+  jonson.RequireLogger(clone).Info("using clone")
+}()
+```
+
 ## Impersonation
 
 In certain cases, you might have to impersonate another caller: Alice needs to perform certain operation in the scope

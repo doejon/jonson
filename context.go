@@ -44,6 +44,20 @@ func (c *Context) Fork() *Context {
 	return NewContext(c, c.factory, c.methodHandler)
 }
 
+// Clone a context in order to use a context in a new goroutine.
+// Clone copies all values from the existing context to a new context
+// ignoring those values not yet fully initialized.
+func (c *Context) Clone() *Context {
+	forked := c.Fork()
+	for _, v := range c.values {
+		if !v.valid {
+			continue
+		}
+		forked.values = append(forked.values, v)
+	}
+	return c
+}
+
 func (c *Context) StoreValue(rt reflect.Type, val any) {
 	for i := range c.values {
 		if c.values[i].rt == rt {
@@ -92,7 +106,11 @@ func (c *Context) debugRecursionLoop(inst reflect.Type) error {
 	return fmt.Errorf("recursion loop while resolving %v:\n-----------\n%s\n-------------\n%s", inst, strings.Join(out, "\n--> "), string(stackTrace))
 }
 
-// func (c *Context) Require[T any]() T {
+// Require requires a given entity by using its reflect.Type.
+// Be aware: in order to allow a Require() call from within another Require() call,
+// Require() itself is _not_ thread-safe. In case you need to use a context over multiple
+// goroutines, create a clone of your context using Clone() to instantiate a new context
+// for the given goroutine.
 func (c *Context) Require(inst reflect.Type) any {
 	if c.finalized {
 		panic(errors.New("context is already finalized"))

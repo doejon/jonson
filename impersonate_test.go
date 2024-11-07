@@ -81,4 +81,27 @@ func TestImpersonation(t *testing.T) {
 			t.Fatalf("expect impersonation to work: %s", err)
 		}
 	})
+
+	t.Run("cloned context will contain impersonated account", func(t *testing.T) {
+		tac.isAuthenticated = true
+
+		ctx := NewContext(context.Background(), fac, nil)
+		err := RequireImpersonator(ctx).Impersonate(aliceUuid, func(ctx *Context) error {
+			assertAccountUuid(t, ctx, aliceUuid, []string{aliceUuid})
+
+			return RequireImpersonator(ctx).Impersonate(bobUuid, func(ctx *Context) error {
+				clone := ctx.Clone()
+				assertAccountUuid(t, clone, bobUuid, []string{aliceUuid, bobUuid})
+
+				return RequireImpersonator(clone).Impersonate(charlyUuid, func(ctx *Context) error {
+					assertAccountUuid(t, ctx, charlyUuid, []string{aliceUuid, bobUuid, charlyUuid})
+					return nil
+				})
+			})
+		})
+
+		if err != nil {
+			t.Fatalf("expect impersonation to work: %s", err)
+		}
+	})
 }
