@@ -78,7 +78,7 @@ type GracefulProvider struct {
 	// checkStatusChan allows us to check for
 	// the server being in shutdown mode by other goroutines
 	checkStatusChan chan struct{}
-	quitChan        chan (os.Signal)
+	quitChan        chan os.Signal
 }
 
 // NewGracefulProvider returns a new Graceful provider
@@ -87,6 +87,7 @@ func NewGracefulProvider() *GracefulProvider {
 		httpServer:      nil,
 		logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		checkStatusChan: make(chan struct{}),
+		quitChan:        make(chan os.Signal, 1),
 	}
 }
 
@@ -145,7 +146,6 @@ func (g *GracefulProvider) ListenAndServe() error {
 	}()
 
 	// wait for sigterm
-	g.quitChan = make(chan os.Signal, 1)
 	signal.Notify(g.quitChan, syscall.SIGINT, syscall.SIGTERM)
 	<-g.quitChan
 
