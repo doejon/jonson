@@ -1,6 +1,31 @@
 # Jonson
 
-A library allowing you to expose API endpoints using [JSON-RPC 2.0](https://www.jsonrpc.org/specification).
+The fastest way to spin up api endpoints in go:
+
+```go
+type News struct {}
+
+type GetHeadlinesV1Params struct {
+  Country string `json:"country"`
+}
+
+type GetHeadlinesV1Result struct {
+  Headlines []string `json:"headlines"`
+}
+
+// GetHeadlines serves the current headlines;
+// will be served on /news/get-headlines.v1
+func (n *News) GetHeadlinesV1(ctx *jonson.Context,
+  public *jonson.Public, _ jonson.HttpPost,
+  params *GetHeadlinesV1Params,
+) (*GetHeadlinesV1Result, error){
+  return &GetHeadlinesV1Result{
+    headlines: []{"Welcome simplicity!"}
+  }, nil
+}
+```
+
+Jonson allows you to expose API endpoints using [JSON-RPC 2.0](https://www.jsonrpc.org/specification).
 
 You will be able to expose functions either using:
 
