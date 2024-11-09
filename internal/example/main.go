@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/doejon/jonson"
 	"github.com/doejon/jonson/internal/example/systems/account"
@@ -29,6 +30,10 @@ func main() {
 	// start the server
 	server := jonson.NewServer(rpc, httpMethod)
 
-	logger.Info("listening on port 8080")
-	server.ListenAndServe(":8080")
+	// create a new graceful shutdown provider
+	graceful := jonson.NewGracefulProvider().WithDefaultHttpServer(server, ":8080").WithTimeout(time.Second * 5).WithLogger(logger)
+	// make the graceful provider available to consuming endpoints
+	providers.RegisterProvider(graceful)
+
+	graceful.ListenAndServe()
 }

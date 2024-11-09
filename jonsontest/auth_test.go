@@ -3,6 +3,7 @@ package jonsontest
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/doejon/jonson"
 )
@@ -195,6 +196,7 @@ func (s *System) GetNestedV1(ctx *jonson.Context, caller *jonson.Private, params
 	return result, err
 }
 
+// GetNestedV1 calls GetNestedV1
 func GetNestedV1(ctx *jonson.Context, params *GetNestedV1Params) (*GetNestedV1Result, error) {
 	out, err := ctx.CallMethod("system/get-nested.v1", jonson.RpcHttpMethodPost, params, nil)
 	if err != nil {
@@ -204,7 +206,7 @@ func GetNestedV1(ctx *jonson.Context, params *GetNestedV1Params) (*GetNestedV1Re
 	return out.(*GetNestedV1Result), nil
 }
 
-// SetV1 calls GetV1
+// SetV1 calls GetV1 under the hood
 func (s *System) SetV1(ctx *jonson.Context, caller *jonson.Private) error {
 	err := GetV1(ctx)
 	if err != nil {
@@ -213,8 +215,49 @@ func (s *System) SetV1(ctx *jonson.Context, caller *jonson.Private) error {
 	return nil
 }
 
+// SetV1 calls SetV1
 func SetV1(ctx *jonson.Context) error {
 	_, err := ctx.CallMethod("system/set.v1", jonson.RpcHttpMethodPost, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ProcessV1 simulates a long-running operation by using the
+// functionality of graceful shutdown checking for server shutdown
+func (s *System) ProcessV1(ctx *jonson.Context, caller *jonson.Private) error {
+	graceful := jonson.RequireGraceful(ctx)
+	for graceful.IsUp() {
+		time.Sleep(time.Millisecond * 250)
+	}
+	return nil
+}
+
+// ProcessV1 calls ProcessV1
+func ProcessV1(ctx *jonson.Context) error {
+	_, err := ctx.CallMethod("system/process.v1", jonson.RpcHttpMethodPost, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ProcessV1 simulates a long-running operation by using the
+// functionality of graceful shutdown checking for server shutdown using graceful.IsDown()
+func (s *System) ProcessV2(ctx *jonson.Context, caller *jonson.Private) error {
+	graceful := jonson.RequireGraceful(ctx)
+	for !graceful.IsDown() {
+		time.Sleep(time.Millisecond * 250)
+	}
+	return nil
+}
+
+// ProcessV2 calls ProcessV2
+func ProcessV2(ctx *jonson.Context) error {
+	_, err := ctx.CallMethod("system/process.v2", jonson.RpcHttpMethodPost, nil, nil)
 	if err != nil {
 		return err
 	}

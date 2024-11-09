@@ -1,6 +1,11 @@
 package account
 
-import "github.com/doejon/jonson"
+import (
+	"log"
+	"time"
+
+	"github.com/doejon/jonson"
+)
 
 //go:generate go run github.com/doejon/jonson/cmd/generate -jonson=github.com/doejon/jonson
 
@@ -47,4 +52,16 @@ func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.Htt
 	return &GetProfileV1Result{
 		Name: "Silvio",
 	}, nil
+}
+
+func (a *Account) ProcessV1(ctx *jonson.Context, caller *Public, _ jonson.HttpGet) error {
+	graceful := jonson.RequireGraceful(ctx)
+	for graceful.IsUp() {
+		for i := 0; i < 5; i++ {
+			log.Printf("sleeping %d", i+1)
+			time.Sleep(time.Second * 1)
+		}
+	}
+	jonson.RequireLogger(ctx).Info("exiting account/process.v1, server shutting down")
+	return nil
 }

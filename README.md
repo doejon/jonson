@@ -541,6 +541,45 @@ In case of an error response, the client will receive no result but an error in 
 }
 ```
 
+## Graceful
+
+Servers might want to shut down in a graceful manner, hence finishing open requests while
+not accepting new incoming ones.
+You can use the `GracefulProvider` which will allow you to set a custom, graceful shutdown strategy.
+Furthermore, `GracefulProvider` allows you to detect server shutdowns in long-running routines
+allowing you to stop those routines if applicable.
+
+```go
+logger := slog.New(...)
+server := jonson.NewServer(...)
+factory := jonson.NewFactory()
+
+// instantiate a graceful provider
+graceful := jonson.NewGracefulProvider().WithCustomHttpServer(&http.Server{
+  Addr: ":8080",
+  Handler: server,
+}).WithLogger(logger)
+
+// make the graceful provider known to
+// long-running operations
+factory.RegisterProvider(graceful)
+
+// start the graceful sterver
+graceful.ListenAndServe()
+```
+
+Within a long running operation and/or API endpoint, you can now check for graceful shutdowns:
+
+```go
+func (s *System) ProcessV1(ctx *jonson.Context){
+  graceful := jonson.RequireGraceful(ctx)
+  for graceful.IsUp(){
+    // process long-running operation
+  }
+  // done processing, server is shutting down
+}
+```
+
 ## Error handling
 
 Jonson predefines a few jsonRpc default errors which are described in the spec.
