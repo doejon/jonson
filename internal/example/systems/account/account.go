@@ -23,10 +23,18 @@ type MeV1Result struct {
 }
 
 func (a *Account) MeV1(ctx *jonson.Context, caller *Private, _ jonson.HttpGet) (*MeV1Result, error) {
+	required := jonson.RequireLogger(ctx)
+	required.Info("calling MeV1")
+	a.subFnCall(ctx)
+
 	return &MeV1Result{
 		Uuid: caller.AccountUuid(),
 		Name: "Silvio",
 	}, nil
+}
+
+func (a *Account) subFnCall(ctx *jonson.Context) {
+	jonson.RequireLogger(ctx).Info("calling subFnCall")
 }
 
 type GetProfileV1Params struct {
@@ -45,6 +53,8 @@ type GetProfileV1Result struct {
 }
 
 func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.HttpPost, params *GetProfileV1Params) (*GetProfileV1Result, error) {
+	jonson.RequireLogger(ctx).Info("calling GetProfileV1")
+
 	uuid := "70634da0-7459-4a17-a50f-7afc2a600d50"
 	if params.Uuid != uuid {
 		return nil, ErrNotFound
@@ -55,6 +65,8 @@ func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.Htt
 }
 
 func (a *Account) ProcessV1(ctx *jonson.Context, caller *Public, _ jonson.HttpGet) error {
+	jonson.RequireLogger(ctx).Info("calling ProcessV1")
+
 	graceful := jonson.RequireGraceful(ctx)
 	for graceful.IsUp() {
 		for i := 0; i < 5; i++ {

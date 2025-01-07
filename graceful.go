@@ -106,10 +106,10 @@ func (g *GracefulProvider) WithHttpServer(server *http.Server) *GracefulProvider
 // WithDefaultHttpServer instantiates the graceful provider with a default
 // http server. In case no address is provided, a random address will be selected
 // by asking the operating system for a free port.
-func (g *GracefulProvider) WithDefaultHttpServer(s *Server, addr string) *GracefulProvider {
+func (g *GracefulProvider) WithDefaultHttpServer(handler http.Handler, addr string) *GracefulProvider {
 	g.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: s,
+		Handler: handler,
 	}
 	return g
 }

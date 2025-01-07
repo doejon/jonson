@@ -1,6 +1,6 @@
 
 ### Get account, not authorized
-POST http://localhost:8080/account/get.v1
+POST http://localhost:8080/account/me.v1
 content-type: application/json
 
 {
@@ -9,7 +9,7 @@ content-type: application/json
 
 ### Get account, authorized
 
-POST http://localhost:8080/account/get.v1
+GET http://localhost:8080/account/me.v1
 content-type: application/json
 Authorization: authorized
 

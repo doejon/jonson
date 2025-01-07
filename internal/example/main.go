@@ -13,7 +13,12 @@ func main() {
 
 	// let's spin up all necessary providers
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	providers := jonson.NewFactory(logger)
+	providers := jonson.NewFactory(
+		&jonson.FactoryOptions{
+			Logger: logger,
+			// let's output the caller's function
+			LoggerOptions: (&jonson.LoggerOptions{}).WithCallerFunction().WithCallerRpcMeta(),
+		})
 	providers.RegisterProvider(account.NewAuthenticationProvider())
 
 	// let's declare the methods to be handled

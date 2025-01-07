@@ -18,10 +18,18 @@ type CurrentTimeV1Result struct {
 }
 
 func (t *TestSystem) CurrentTimeV1(ctx *Context, public *TestPublic, _ HttpGet) (*CurrentTimeV1Result, error) {
-	nw := RequireTime(ctx).Now().Unix()
+	nw := t.getCurrentTime(ctx)
+	RequireLogger(ctx).Info("current time", "currentTime", nw)
+
 	return &CurrentTimeV1Result{
 		Ts: nw,
 	}, nil
+}
+
+func (t *TestSystem) getCurrentTime(ctx *Context) int64 {
+	nw := RequireTime(ctx).Now().Unix()
+	RequireLogger(ctx).Info("getCurrentTime()", "currentTime", nw)
+	return nw
 }
 
 type MeV1Result struct {

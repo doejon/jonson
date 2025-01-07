@@ -326,17 +326,36 @@ func (t *Time) Finalize(err []error)error {
 
 The `Factory` allows for specifying a `Logger` which will be used to output certain debug logging information.
 Per default a no-op-logger will be used which won't output any logging information.
-In case you woul like to inspect certain information from jonson, provide a logger:
+In case you would like to inspect certain information from jonson, provide a logger:
 
 ```go
 
 logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-factory := jonson.NewFactory(logger)
+factory := jonson.NewFactory(jonson.NewFactoryOptions{
+  Logger: logger,
+})
 
 ```
 
 The logger will be provided to the underlying remote procedure calls using the factory by mounting a logger provider.
 Use `jonson.RequireLogger(ctx)` to get access to the logger.
+
+The logger also allows you to log certain information by default, for example the endpoint called or the function the logger was required in.
+To do so, use:
+
+```go
+
+logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+factory := jonson.NewFactory(jonson.NewFactoryOptions{
+  Logger: logger,
+  LoggerOptions: (&LoggerOptions{}).WithCallerFunction().WithCallerRpcMeta(),
+})
+
+```
+
+`WithCallerFunction` will log the current caller function using the key "function". You can provide your own key.
+`WithCallerRpcMeta` will log the caller rpc meta using the key "rpcMeta". You can provide your own key.
+
 
 ## Method handler
 

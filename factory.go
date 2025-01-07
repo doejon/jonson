@@ -17,9 +17,31 @@ type boundMethod struct {
 	method reflect.Value
 }
 
-func NewFactory(logger ...*slog.Logger) *Factory {
+type FactoryOptions struct {
+	Logger        *slog.Logger
+	LoggerOptions *LoggerOptions
+}
+
+// NewFactory returns a new factory.
+// Provide FactoryOptions in case you want anything but the default values
+func NewFactory(options ...*FactoryOptions) *Factory {
 	out := &Factory{
 		providers: map[reflect.Type]boundMethod{},
+	}
+	var opts *FactoryOptions
+	if len(options) > 1 {
+		panic("only a single options element is allowed")
+	}
+	if len(options) == 1 {
+		opts = options[0]
+	} else {
+		opts = &FactoryOptions{}
+	}
+	if opts.Logger == nil {
+		opts.Logger = NewNoOpLogger()
+	}
+	if opts.LoggerOptions == nil {
+		opts.LoggerOptions = &LoggerOptions{}
 	}
 
 	// the http method provider will make sure our
@@ -27,12 +49,8 @@ func NewFactory(logger ...*slog.Logger) *Factory {
 	// and will be available by default to all
 	// calls
 	out.RegisterProvider(newHttpMethodProvider())
-	var lg *slog.Logger = NewNoOpLogger()
-	for _, v := range logger {
-		lg = v
-	}
-	out.RegisterProvider(newLoggerProvider(lg))
-	out.logger = lg
+	out.RegisterProvider(newLoggerProvider(opts.Logger, opts.LoggerOptions))
+	out.logger = opts.Logger
 
 	return out
 }
