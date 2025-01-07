@@ -59,7 +59,12 @@ func (l *LoggerOptions) WithCallerRpcMeta(key ...string) *LoggerOptions {
 	}
 
 	l.Initializer = append(l.Initializer, func(ctx *Context, logger *slog.Logger) *slog.Logger {
-		meta := RequireRpcMeta(ctx)
+		_meta, err := ctx.GetValue(TypeRpcMeta)
+		if err != nil {
+			// no rpc meta available
+			return logger
+		}
+		meta := _meta.(*RpcMeta)
 		return logger.With(k, struct {
 			Source     string `json:"source"`
 			Method     string `json:"method"`
