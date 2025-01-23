@@ -40,8 +40,14 @@ func NewContext(parent context.Context, factory *Factory, methodHandler *MethodH
 	return ctx
 }
 
+// Fork a context derived from the current context
 func (c *Context) Fork() *Context {
 	return NewContext(c, c.factory, c.methodHandler)
+}
+
+// New returns a new context with no dependency on the parent
+func (c *Context) New(ctx context.Context) *Context {
+	return NewContext(ctx, c.factory, c.methodHandler)
 }
 
 // Clone a context in order to use a context in a new goroutine.
