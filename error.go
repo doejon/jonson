@@ -1,6 +1,7 @@
 package jonson
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -68,4 +69,16 @@ func (e Error) String() string {
 		data = e.Data.String()
 	}
 	return fmt.Sprintf("error code: %d | message: %s | data: %s", e.Code, e.Message, data)
+}
+
+// PanicError is an error created in case the executing rpc message panics
+type PanicError struct {
+	Err    error
+	Stack  string
+	ID     json.RawMessage
+	Method string
+}
+
+func (p *PanicError) Error() string {
+	return p.Err.Error()
 }

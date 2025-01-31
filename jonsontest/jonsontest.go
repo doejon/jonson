@@ -37,27 +37,81 @@ func NewContextBoundary(
 
 // Run runs test. In case you need to inspect a panic,
 // handle a recover fn (recovr) which will receive the stack as a fn argument
-func (t *TestContextBoundary) Run(fn func(ctx *jonson.Context) error, recovr ...func(stack string)) (err error) {
+func (t *TestContextBoundary) Run(fn func(ctx *jonson.Context) error, recovr ...func(stack string)) error {
 	ctx := jonson.NewContext(
 		context.Background(),
 		t.factory,
 		t.methodHandler,
 	)
-	defer func() {
-		if r := recover(); r != nil {
-			stack := string(debug.Stack())
-			inspectors := append(t.stackInspector, recovr...)
-			for _, v := range inspectors {
-				v(stack)
+
+	var err error
+	func() {
+		// make sure to recover in case
+		// of a panic
+		defer func() {
+			if r := recover(); r != nil {
+				stack := string(debug.Stack())
+				recoverErr := getRecoverError(r)
+				if _, ok := recoverErr.(*jonson.Error); !ok {
+					err = &jonson.PanicError{
+						Err:    recoverErr,
+						Stack:  stack,
+						Method: "<unknown>",
+						ID:     nil,
+					}
+				} else {
+					// error thrown intentionally - can be handled by the application
+					err = recoverErr
+				}
 			}
-			err = getRecoverError(r)
+		}()
+
+		// apply options to context
+		for _, opt := range t.opts {
+			opt(ctx)
 		}
-		err = ctx.Finalize(err)
+		errs := []error{}
+
+		// execute the handled function
+		e := fn(ctx)
+		if e != nil {
+			errs = append(errs, e)
+		}
+
+		// finalize the context
+		e = ctx.Finalize(err)
+		if e != nil {
+			errs = append(errs, e)
+		}
+
+		// any errors?
+		if len(errs) <= 0 {
+			return
+		}
+		// make sure to return single errors without joining them - they might be api errors
+		// we need to handle on the application level
+		if len(errs) == 1 {
+			err = errs[0]
+			return
+		}
+		// multiple errors, let's join them
+		err = errors.Join(errs...)
 	}()
-	for _, opt := range t.opts {
-		opt(ctx)
+
+	if err == nil {
+		return nil // nothing more to do
 	}
-	return fn(ctx)
+
+	panicErr, ok := err.(*jonson.PanicError)
+	if ok {
+		// we got ourselves a panic error
+		inspectors := append(t.stackInspector, recovr...)
+		for _, v := range inspectors {
+			v(panicErr.Stack)
+		}
+	}
+
+	return err
 }
 
 // MustRun makes the parent test fail in case of an error

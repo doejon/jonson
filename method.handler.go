@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 )
 
@@ -276,6 +277,8 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 	}
 }
 
+var _callMethodId = json.RawMessage("-1")
+
 func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod RpcHttpMethod, payload any, bindata []byte) (any, error) {
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
@@ -305,7 +308,9 @@ func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod R
 	res, err := m.callMethod(ctx, &RpcRequest{
 		Version: "2.0",
 		Method:  method,
-		Params:  json.RawMessage(jsonPayload),
+		// we do not really care about the id here since we return the value right away
+		ID:     _callMethodId,
+		Params: json.RawMessage(jsonPayload),
 	}, bindata)
 
 	// finalize the context used for the current call
@@ -524,14 +529,57 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		args[i] = reflect.ValueOf(v)
 	}
 
-	var (
-		err           error
-		handlerResult = handler.handlerFunc.Call(args)
-		// error is either on position 1 (data, err) or position 0 (err)
-		errIndex = len(handlerResult) - 1
-		res      any
-	)
+	var err error
 
+	// call handler and capture panics
+	handlerResult := func() []reflect.Value {
+		defer func() {
+			// catch any errors
+			if r := recover(); r != nil {
+				recoverErr := getRecoverError(r)
+
+				// fwd information to the outside world
+				stack := string(debug.Stack())
+				if _, ok := recoverErr.(*Error); !ok {
+					// panic, not thrown intentionally (cannot cast to an explicit jonson.Error)
+					err = &PanicError{
+						Err:    recoverErr,
+						ID:     rpcRequest.ID,
+						Method: rpcRequest.Method,
+						Stack:  stack,
+					}
+				} else {
+					// the function threw an error we must handle
+					// and return to the outside world;
+					// this error was most likely thrown intentionally since it's following
+					// the jonson conventions
+					err = recoverErr
+				}
+
+				m.logger.Error("panic in method handler",
+					"rpcRequest", struct {
+						ID     json.RawMessage `json:"id"`
+						Method string          `json:"method"`
+					}{
+						ID:     rpcRequest.ID,
+						Method: rpcRequest.Method,
+					},
+					"error", recoverErr,
+					"stack", stack,
+				)
+			}
+		}()
+		return handler.handlerFunc.Call(args)
+	}()
+	if err != nil {
+		// we had a panic -> recover already logs the panic
+		return nil, err
+	}
+
+	// error is either on position 1 (data, err) or position 0 (err)
+	errIndex := len(handlerResult) - 1
+
+	var res any
 	// our method has (any, error) - use it
 	if len(handlerResult) == 2 {
 		res = handlerResult[0].Interface()
