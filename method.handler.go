@@ -541,32 +541,35 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 				// fwd information to the outside world
 				stack := string(debug.Stack())
 				if _, ok := recoverErr.(*Error); !ok {
-					// panic, not thrown intentionally (cannot cast to an explicit jonson.Error)
+					// panic, thrown unintentionally (cannot cast to an explicit jonson.Error)
 					err = &PanicError{
 						Err:    recoverErr,
 						ID:     rpcRequest.ID,
 						Method: rpcRequest.Method,
 						Stack:  stack,
 					}
+
+					// let's log the unintended panic
+					m.logger.Error("panic in method handler",
+						"rpcRequest", struct {
+							ID     json.RawMessage `json:"id"`
+							Method string          `json:"method"`
+						}{
+							ID:     rpcRequest.ID,
+							Method: rpcRequest.Method,
+						},
+						"error", recoverErr,
+						"stack", stack,
+					)
 				} else {
 					// the function threw an error we must handle
 					// and return to the outside world;
 					// this error was most likely thrown intentionally since it's following
 					// the jonson conventions
 					err = recoverErr
-				}
 
-				m.logger.Error("panic in method handler",
-					"rpcRequest", struct {
-						ID     json.RawMessage `json:"id"`
-						Method string          `json:"method"`
-					}{
-						ID:     rpcRequest.ID,
-						Method: rpcRequest.Method,
-					},
-					"error", recoverErr,
-					"stack", stack,
-				)
+					// no need to log, the developer caused the panic intentionally
+				}
 			}
 		}()
 		return handler.handlerFunc.Call(args)
