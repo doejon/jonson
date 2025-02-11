@@ -501,13 +501,11 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 			}()
 
 			if err != nil {
-				jErr, ok := err.(*Error)
-				if ok {
-					// in case we can cast, let's also log the debug information (json.marshals the error object instead of just using its string))
-					m.logger.Info("method handler: validation error ", "error", jErr)
-				} else {
-					m.logger.Info("method handler: validation error ", "error", err)
-				}
+				m.logger.Info(
+					"method handler: validation error",
+					"error", err,
+					"rpcRequest", rpcRequest.getLogInfo(ctx),
+				)
 				return nil, err
 			}
 			args[i] = params
@@ -528,7 +526,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		}()
 
 		if err != nil {
-			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), "error", err)
+			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), "error", err, "rpcRequest", rpcRequest.getLogInfo(ctx))
 			return nil, err
 		}
 
@@ -557,13 +555,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 
 					// let's log the unintended panic
 					m.logger.Error("panic in method handler",
-						"rpcRequest", struct {
-							ID     json.RawMessage `json:"id"`
-							Method string          `json:"method"`
-						}{
-							ID:     rpcRequest.ID,
-							Method: rpcRequest.Method,
-						},
+						"rpcRequest", rpcRequest.getLogInfo(ctx),
 						"error", recoverErr,
 						"stack", stack,
 					)

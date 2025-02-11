@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+
+	"github.com/doejon/jonson"
 )
 
 // Rpc internal errors
@@ -23,6 +25,27 @@ type RpcRequest struct {
 	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
+}
+
+type rpcRequestLogInfo struct {
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+	Params string          `json:"params"`
+}
+
+func (r *RpcRequest) getLogInfo(ctx *jonson.Context) *rpcRequestLogInfo {
+	p := ""
+	if r.Params == nil {
+		p = "<nil>"
+	} else {
+		// make sure to encode params
+		p = RequireSecret(ctx).Encode(string(r.Params))
+	}
+	return &rpcRequestLogInfo{
+		ID:     r.ID,
+		Method: r.Method,
+		Params: p,
+	}
 }
 
 // RpcNotification object
