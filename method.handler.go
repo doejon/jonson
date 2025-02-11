@@ -526,7 +526,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		}()
 
 		if err != nil {
-			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), "error", err, "rpcRequest", rpcRequest.getLogInfo(m.errorEncoder))
+			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' failed", rti.String()), "error", err, "rpcRequest", rpcRequest.getLogInfo(m.errorEncoder))
 			return nil, err
 		}
 
