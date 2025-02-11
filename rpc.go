@@ -31,13 +31,13 @@ type rpcRequestLogInfo struct {
 	Params string          `json:"params"`
 }
 
-func (r *RpcRequest) getLogInfo(ctx *Context) *rpcRequestLogInfo {
+func (r *RpcRequest) getLogInfo(secret Secret) *rpcRequestLogInfo {
 	p := ""
 	if r.Params == nil {
 		p = "<nil>"
 	} else {
 		// make sure to encode params
-		p = RequireSecret(ctx).Encode(string(r.Params))
+		p = secret.Encode(string(r.Params))
 	}
 	return &rpcRequestLogInfo{
 		ID:     r.ID,

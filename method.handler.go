@@ -504,7 +504,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 				m.logger.Info(
 					"method handler: validation error",
 					"error", err,
-					"rpcRequest", rpcRequest.getLogInfo(ctx),
+					"rpcRequest", rpcRequest.getLogInfo(m.errorEncoder),
 				)
 				return nil, err
 			}
@@ -526,7 +526,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		}()
 
 		if err != nil {
-			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), "error", err, "rpcRequest", rpcRequest.getLogInfo(ctx))
+			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' error", rti.String()), "error", err, "rpcRequest", rpcRequest.getLogInfo(m.errorEncoder))
 			return nil, err
 		}
 
@@ -555,7 +555,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 
 					// let's log the unintended panic
 					m.logger.Error("panic in method handler",
-						"rpcRequest", rpcRequest.getLogInfo(ctx),
+						"rpcRequest", rpcRequest.getLogInfo(m.errorEncoder),
 						"error", recoverErr,
 						"stack", stack,
 					)
