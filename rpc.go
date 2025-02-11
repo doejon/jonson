@@ -3,7 +3,6 @@ package jonson
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"reflect"
 )
 
@@ -57,6 +56,15 @@ func (r *RpcRequest) UnmarshalAndValidate(errEncoder Secret, out any, bindata []
 	if err := dec.Decode(out); err != nil {
 		return ErrInvalidParams.CloneWithData(&ErrorData{
 			Debug: errEncoder.Encode(err.Error()),
+			Details: []*Error{
+				{
+					Code:    ErrInternal.Code,
+					Message: "failed to decode params",
+					Data: &ErrorData{
+						Debug: errEncoder.Encode(string(r.Params)),
+					},
+				},
+			},
 		})
 	}
 
@@ -134,23 +142,6 @@ const (
 	RpcHttpMethodPost    RpcHttpMethod = "POST"
 	RpcHttpMethodUnknown RpcHttpMethod = "UNKNOWN"
 )
-
-func getRpcHttpMethod(req *http.Request) RpcHttpMethod {
-	switch req.Method {
-	case "GET":
-		return RpcHttpMethodGet
-	case "get":
-		return RpcHttpMethodGet
-
-	case "POST":
-		return RpcHttpMethodPost
-	case "post":
-		return RpcHttpMethodPost
-	default:
-		return RpcHttpMethodUnknown
-	}
-
-}
 
 type RpcSource string
 

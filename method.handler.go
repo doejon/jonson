@@ -501,7 +501,13 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 			}()
 
 			if err != nil {
-				m.logger.Info("method handler: validation error: ", "error", err)
+				jErr, ok := err.(*Error)
+				if ok {
+					// in case we can cast, let's also log the debug information (json.marshals the error object instead of just using its string))
+					m.logger.Info("method handler: validation error ", "error", jErr)
+				} else {
+					m.logger.Info("method handler: validation error ", "error", err)
+				}
 				return nil, err
 			}
 			args[i] = params
