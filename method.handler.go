@@ -464,7 +464,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 	// retrieve rpc handler
 	handler, ok := m.endpoints[rpcRequest.Method]
 	if !ok {
-		m.logger.Warn("method handler: endpoint not found: ", "method", rpcRequest.Method)
+		m.logger.Warn("method handler: endpoint not found", "method", rpcRequest.Method)
 		return nil, ErrMethodNotFound
 	}
 
@@ -554,7 +554,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 					}
 
 					// let's log the unintended panic
-					m.logger.Error("panic in method handler",
+					m.logger.Error("method handler: panic",
 						"rpcRequest", rpcRequest.getLogInfo(m.errorEncoder),
 						"error", recoverErr,
 						"stack", stack,
