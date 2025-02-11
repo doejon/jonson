@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
-
-	"github.com/doejon/jonson"
 )
 
 // Rpc internal errors
@@ -33,7 +31,7 @@ type rpcRequestLogInfo struct {
 	Params string          `json:"params"`
 }
 
-func (r *RpcRequest) getLogInfo(ctx *jonson.Context) *rpcRequestLogInfo {
+func (r *RpcRequest) getLogInfo(ctx *Context) *rpcRequestLogInfo {
 	p := ""
 	if r.Params == nil {
 		p = "<nil>"
