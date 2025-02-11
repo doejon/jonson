@@ -25,13 +25,13 @@ type RpcRequest struct {
 	Params  json.RawMessage `json:"params"`
 }
 
-type rpcRequestLogInfo struct {
+type RpcRequestLogInfo struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
 	Params string          `json:"params"`
 }
 
-func (r *RpcRequest) getLogInfo(secret Secret) *rpcRequestLogInfo {
+func (r *RpcRequest) getLogInfo(secret Secret) *RpcRequestLogInfo {
 	p := ""
 	if r.Params == nil {
 		p = "<nil>"
@@ -39,7 +39,7 @@ func (r *RpcRequest) getLogInfo(secret Secret) *rpcRequestLogInfo {
 		// make sure to encode params
 		p = secret.Encode(string(r.Params))
 	}
-	return &rpcRequestLogInfo{
+	return &RpcRequestLogInfo{
 		ID:     r.ID,
 		Method: r.Method,
 		Params: p,

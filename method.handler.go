@@ -81,6 +81,9 @@ var validMissingValidationLevel = map[MissingValidationLevel]struct{}{
 
 type MethodHandlerOptions struct {
 	MissingValidationLevel MissingValidationLevel
+	// allows you to intercept the rpc log message before it reaches the final
+	// log; This allows you to e.g. hide parameters
+	RpcRequestLogInfoInterceptor func(info *RpcRequestLogInfo) *RpcRequestLogInfo
 }
 
 func GetDefaultMethodName(system string, method string, version uint64) string {
@@ -97,6 +100,12 @@ func NewMethodHandler(
 	}
 	if _, ok := validMissingValidationLevel[opts.MissingValidationLevel]; !ok {
 		opts.MissingValidationLevel = MissingValidationLevelInfo
+	}
+	if opts.RpcRequestLogInfoInterceptor == nil {
+		// by default, forward log info as is
+		opts.RpcRequestLogInfoInterceptor = func(x *RpcRequestLogInfo) *RpcRequestLogInfo {
+			return x
+		}
 	}
 
 	return &MethodHandler{
@@ -504,7 +513,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 				m.logger.Info(
 					"method handler: validation error",
 					"error", err,
-					"rpcRequest", rpcRequest.getLogInfo(m.errorEncoder),
+					"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)),
 				)
 				return nil, err
 			}
@@ -526,7 +535,9 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		}()
 
 		if err != nil {
-			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' failed", rti.String()), "error", err, "rpcRequest", rpcRequest.getLogInfo(m.errorEncoder))
+			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' failed", rti.String()),
+				"error", err,
+				"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)))
 			return nil, err
 		}
 
@@ -555,9 +566,9 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 
 					// let's log the unintended panic
 					m.logger.Error("method handler: panic",
-						"rpcRequest", rpcRequest.getLogInfo(m.errorEncoder),
 						"error", recoverErr,
 						"stack", stack,
+						"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)),
 					)
 				} else {
 					// the function threw an error we must handle
