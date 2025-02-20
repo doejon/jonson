@@ -108,6 +108,9 @@ func NewMethodHandler(
 		}
 	}
 
+	// register the error encoder
+	factory.RegisterProvider(newSecretProvider(errorEncoder))
+
 	return &MethodHandler{
 		factory:      factory,
 		methodName:   GetDefaultMethodName,
@@ -210,7 +213,6 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		TypeHttpRequest,
 		TypeHttpResponseWriter,
 		TypeWSClient,
-		TypeSecret,
 	)
 
 	for i := paramShift; i < rt.NumIn(); i++ {
@@ -435,7 +437,6 @@ func (m *MethodHandler) processRpcMessage(
 	if ws != nil {
 		ctx.StoreValue(TypeWSClient, ws)
 	}
-	ctx.StoreValue(TypeSecret, m.errorEncoder)
 
 	ctx.StoreValue(TypeRpcMeta, &RpcMeta{
 		Method:     rpcRequest.Method,

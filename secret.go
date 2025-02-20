@@ -120,3 +120,19 @@ func (e *DebugSecret) Encode(in string) string {
 func (e *DebugSecret) Decode(in string) (string, error) {
 	return in, nil
 }
+
+// secretProvider is used internally to provide the secret
+// once it's passed down to the method handler
+type secretProvider struct {
+	secret Secret
+}
+
+func newSecretProvider(secret Secret) *secretProvider {
+	return &secretProvider{
+		secret: secret,
+	}
+}
+
+func (s *secretProvider) NewSecret(ctx *Context) Secret {
+	return s.secret
+}
