@@ -69,7 +69,12 @@ func NewRpcNotification(method string, payload any) *RpcNotification {
 }
 
 // UnmarshalAndValidate fills the given interface with the supplied params
-func (r *RpcRequest) UnmarshalAndValidate(errEncoder Secret, out any, bindata []byte) error {
+func (r *RpcRequest) UnmarshalAndValidate(
+	ctx *Context,
+	errEncoder Secret,
+	out any,
+	bindata []byte,
+) error {
 
 	dec := json.NewDecoder(bytes.NewReader([]byte(r.Params)))
 	dec.DisallowUnknownFields()
@@ -105,7 +110,7 @@ func (r *RpcRequest) UnmarshalAndValidate(errEncoder Secret, out any, bindata []
 	// params can be validated
 	canValidate, ok := out.(ValidatedParams)
 	if ok {
-		result := Validate(errEncoder, canValidate)
+		result := Validate(ctx, errEncoder, canValidate)
 		if result == nil {
 			return nil
 		}

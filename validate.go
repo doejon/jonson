@@ -5,6 +5,9 @@ import (
 	"reflect"
 )
 
+// ValidatedParams are parameters which have been validated before reaching the business logic.
+// Make sure you do keep the validation to static data analysis and do not integrate
+// any business logic validation into the validator
 type ValidatedParams interface {
 	JonsonValidate(validator *Validator)
 }
@@ -13,13 +16,20 @@ type Validator struct {
 	errors   []*Error
 	secret   Secret
 	basePath []string
+
+	*Context
 }
 
-func NewValidator(secret Secret, basePath ...string) *Validator {
+// NewValidator returns a new validator;
+// Please note: not all features from the context will be available
+// within the scope of the validator;
+// Ideally, use the context to require logger and time only
+func NewValidator(ctx *Context, secret Secret, basePath ...string) *Validator {
 	return &Validator{
 		errors:   []*Error{},
 		secret:   secret,
 		basePath: basePath,
+		Context:  ctx,
 	}
 }
 
@@ -28,7 +38,6 @@ type validatorError struct {
 	added     bool
 
 	path    []string
-	index   *int
 	debug   string
 	code    int
 	message string
@@ -95,7 +104,12 @@ func (e *validatorError) Validate(validateable ValidatedParams) *Error {
 	// mark this validator error as done
 	e.added = true
 
-	err := Validate(e.validator.secret, validateable, append(e.validator.basePath, e.path...)...)
+	err := Validate(
+		e.validator.Context,
+		e.validator.secret,
+		validateable,
+		append(e.validator.basePath, e.path...)...,
+	)
 	e.added = true
 	if err == nil {
 		return nil
@@ -152,8 +166,8 @@ func (e *Validator) Error() *Error {
 }
 
 // Validate validates the handled interface
-func Validate(secret Secret, validateable ValidatedParams, basePath ...string) *Error {
-	collector := NewValidator(secret, basePath...)
+func Validate(ctx *Context, secret Secret, validateable ValidatedParams, basePath ...string) *Error {
+	collector := NewValidator(ctx, secret, basePath...)
 	validateable.JonsonValidate(collector)
 	return collector.Error()
 }

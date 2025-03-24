@@ -506,7 +506,12 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 						err = getRecoverError(r)
 					}
 				}()
-				err = rpcRequest.UnmarshalAndValidate(m.errorEncoder, params.Interface(), bindata)
+				err = rpcRequest.UnmarshalAndValidate(
+					ctx,
+					m.errorEncoder,
+					params.Interface(),
+					bindata,
+				)
 				return
 			}()
 

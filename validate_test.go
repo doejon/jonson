@@ -1,9 +1,11 @@
 package jonson
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 type Profile struct {
@@ -11,6 +13,7 @@ type Profile struct {
 	Image         *Image   `json:"image,omitempty"`
 	ImageRequired Image    `json:"imageRequired"`
 	ImageArr      []*Image `json:"imageArray"`
+	BirthdayTs    int64    `json:"birthday"`
 }
 
 func (p *Profile) JonsonValidate(v *Validator) {
@@ -27,6 +30,12 @@ func (p *Profile) JonsonValidate(v *Validator) {
 	for idx, img := range p.ImageArr {
 		v.Path("imageArr", v.Index(idx)).Validate(img)
 	}
+
+	tm := RequireTime(v.Context).Now().Unix()
+	if p.BirthdayTs < tm {
+		v.Path("birthdayTs").Message(fmt.Sprintf("birthday before or equal timestamp, got: %d", tm))
+	}
+
 }
 
 type Image struct {
@@ -47,6 +56,14 @@ func (i *Image) JonsonValidate(v *Validator) {
 }
 
 func TestValidate(t *testing.T) {
+	fac := NewFactory()
+	tm := time.Unix(1000, 0)
+	fac.RegisterProvider(NewTimeProvider(func() Time {
+		return newMockTime(tm)
+	}))
+
+	ctx := NewContext(context.Background(), fac, nil)
+
 	validImage := func() *Image {
 		return &Image{
 			UUID: "d69b8e2c-3e72-47fe-9c06-5113d03e7d59",
@@ -60,6 +77,7 @@ func TestValidate(t *testing.T) {
 			Image:         validImage(),
 			ImageRequired: *i,
 			ImageArr:      []*Image{validImage(), validImage()},
+			BirthdayTs:    tm.Unix() + 1,
 		}
 	}
 
@@ -78,6 +96,29 @@ func TestValidate(t *testing.T) {
 			inspect: func(e *Error) error {
 				if e != nil {
 					return fmt.Errorf("error must be nil")
+				}
+				return nil
+			},
+		},
+		{
+			name: "birthday invalid",
+			data: func() *Profile {
+				out := validProfile()
+				out.BirthdayTs = 0
+				return out
+			},
+			inspect: func(e *Error) error {
+				if e == nil {
+					return fmt.Errorf("error expected")
+				}
+				if e.Data.Details[0].Data.Path[0] != "birthdayTs" {
+					return fmt.Errorf("expected 'name' to have an error")
+				}
+				if e.Data.Details[0].Code != -32602 {
+					return fmt.Errorf("expected code to equal -32602, got: %d", e.Data.Details[0].Code)
+				}
+				if e.Data.Details[0].Message != "birthday before or equal timestamp, got: 1000" {
+					return fmt.Errorf("expected message to be equal, got: %s", e.Data.Details[0].Message)
 				}
 				return nil
 			},
@@ -158,7 +199,7 @@ func TestValidate(t *testing.T) {
 		t.Run(v.name, func(t *testing.T) {
 			data := v.data()
 			secret := NewDebugSecret()
-			result := Validate(secret, data)
+			result := Validate(ctx, secret, data)
 			if err := v.inspect(result); err != nil {
 				t.Fatal(err)
 			}
