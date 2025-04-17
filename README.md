@@ -180,6 +180,23 @@ func(a *Address) JonsonValidate(v *jonson.Validator){
 
 The validator allows you to optionally set `Debug(msg string)` and `Code(code int)` to the error. In case code is not available, jonson.ErrInvalidParams' code will be used. The debug message will be encrypted and added to the error details using jonson.Secret.
 
+Before the validation takes place, the remote procedure call's params will be unmarshaled.
+The unmarshaler is configured to be strict - e.g. unknown fields will not be allowed.
+In case you need to be a bit more relaxed on unknown keys, you can implement the "AllowUnknownFieldsParams" interface:
+
+```go
+
+type ParamsAllowingUnknownFields struct {
+  Uuid string `json:"id"`
+}
+
+func (t *ParamsAllowingUnknownFields) JonsonAllowUnknownFields() {
+  // do nothing
+}
+
+var _ ParamsAllowingUnknownFields = (&TestDataUnknownFields{})
+```
+
 ## Factory
 
 Let's assume, the account wants to have access to a database or the current time.
@@ -355,7 +372,6 @@ factory := jonson.NewFactory(jonson.NewFactoryOptions{
 
 `WithCallerFunction` will log the current caller function using the key "function". You can provide your own key.
 `WithCallerRpcMeta` will log the caller rpc meta using the key "rpcMeta". You can provide your own key.
-
 
 ## Method handler
 
