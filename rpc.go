@@ -76,8 +76,12 @@ func (r *RpcRequest) UnmarshalAndValidate(
 	bindata []byte,
 ) error {
 
+	_, allowUnknownFields := out.(AllowUnknownFieldsParams)
+
 	dec := json.NewDecoder(bytes.NewReader([]byte(r.Params)))
-	dec.DisallowUnknownFields()
+	if !allowUnknownFields {
+		dec.DisallowUnknownFields()
+	}
 	dec.UseNumber()
 	if err := dec.Decode(out); err != nil {
 		return ErrInvalidParams.CloneWithData(&ErrorData{

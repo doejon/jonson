@@ -12,6 +12,10 @@ type ValidatedParams interface {
 	JonsonValidate(validator *Validator)
 }
 
+type AllowUnknownFieldsParams interface {
+	JonsonAllowUnknownFields()
+}
+
 type Validator struct {
 	errors   []*Error
 	secret   Secret
