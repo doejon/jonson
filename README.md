@@ -194,7 +194,8 @@ func (t *ParamsAllowingUnknownFields) JonsonAllowUnknownFields() {
   // do nothing
 }
 
-var _ ParamsAllowingUnknownFields = (&TestDataUnknownFields{})
+// make sure the interface is correctly implemented by ParamsAllowingUnknownFields
+var _ jonson.AllowUnknownFieldsParams = (&ParamsAllowingUnknownFields{})
 ```
 
 ## Factory
