@@ -50,6 +50,22 @@ func (c *Context) New(ctx context.Context) *Context {
 	return NewContext(ctx, c.factory, c.methodHandler)
 }
 
+// RootContext returns the top-most (root) context.
+// In case the initial context was nil, nil will be returned
+func (c *Context) RootContext() context.Context {
+	ctx := c.parent
+	for {
+		if ctx == nil {
+			return ctx
+		}
+		jCtx, ok := ctx.(*Context)
+		if !ok {
+			return ctx
+		}
+		ctx = jCtx.parent
+	}
+}
+
 // Clone a context in order to use a context in a new goroutine.
 // Clone copies all values from the existing context to a new context
 // ignoring those values not yet fully initialized.
@@ -61,7 +77,7 @@ func (c *Context) Clone() *Context {
 		}
 		forked.values = append(forked.values, v)
 	}
-	return c
+	return forked
 }
 
 func (c *Context) StoreValue(rt reflect.Type, val any) {
@@ -83,7 +99,6 @@ func (c *Context) StoreValue(rt reflect.Type, val any) {
 // re-required. Invalidation might e.g. happen during
 // some value changes due to login or register.
 // You can invalidate multiple values at once
-
 func (c *Context) Invalidate(rt ...reflect.Type) {
 	toInvalidate := map[reflect.Type]struct{}{}
 	for _, v := range rt {
