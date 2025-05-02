@@ -1,0 +1,22 @@
+package main
+
+import "github.com/doejon/jonson"
+
+//go:generate go run gitlab.dto.rocks/dto/dtpa/go/jonson/cmd/generate
+
+// @generate
+type {{.Type}} struct {
+}
+
+type {{.Name}}Provider struct {
+}
+
+func New{{.Name}}Provider() *{{.Name}}Provider {
+    // TODO implement me
+	return &{{.Name}}Provider{}
+}
+
+func (p *{{.Name}}Provider) New{{.Type}}(ctx *jonson.Context) *{{.Type}} {
+    // TODO implement me
+	return &{{.Type}}{}
+}
