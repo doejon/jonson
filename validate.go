@@ -170,7 +170,12 @@ func (e *Validator) Error() *Error {
 }
 
 // Validate validates the handled interface
-func Validate(ctx *Context, secret Secret, validateable ValidatedParams, basePath ...string) *Error {
+func Validate(
+	ctx *Context,
+	secret Secret,
+	validateable ValidatedParams,
+	basePath ...string,
+) *Error {
 	collector := NewValidator(ctx, secret, basePath...)
 	validateable.JonsonValidate(collector)
 	return collector.Error()

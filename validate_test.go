@@ -120,6 +120,16 @@ func TestValidate(t *testing.T) {
 				if e.Data.Details[0].Message != "birthday before or equal timestamp, got: 1000" {
 					return fmt.Errorf("expected message to be equal, got: %s", e.Data.Details[0].Message)
 				}
+
+				if err, _ := e.Inspect().Code(-32602).Path("birthdayTs").FindFirst(); err == nil {
+					t.Fatal("expected to find -32602 error with birthdayTs as a path")
+				}
+
+				errs := e.Inspect().Code(-32602).Path("birthdayTs").FindAll()
+				if len(errs) != 1 {
+					t.Fatalf("expected to find -32602 with birthdayTs exactly once, got: %d", len(errs))
+				}
+
 				return nil
 			},
 		},
