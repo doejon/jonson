@@ -129,7 +129,7 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		h.methodHandler.logger.Warn("rpc http handler: read error", "error", err)
+		h.methodHandler.getLogger(nil).Warn("rpc http handler: read error", "error", err)
 		resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 	} else {
 		resp, batch = h.methodHandler.processRpcMessages(RpcSourceHttpRpc, RpcHttpMethodPost, req, w, nil, body)
@@ -202,7 +202,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	method := RpcHttpMethod(req.Method)
 
 	if err != nil {
-		h.methodHandler.logger.Warn("http method handler: read error", "error", err)
+		h.methodHandler.getLogger(nil).Warn("http method handler: read error", "error", err)
 		resp = NewRpcErrorResponse(nil, ErrParse)
 	} else {
 		resp = h.methodHandler.processRpcMessage(RpcSourceHttp, method, req, w, nil, &RpcRequest{

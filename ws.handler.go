@@ -72,7 +72,7 @@ func (wb *WebsocketHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 
 	conn, err := wb.options.Upgrader.Upgrade(w, req, nil)
 	if err != nil {
-		wb.methodHandler.logger.Warn("websocketHandler.Handle", "error", err)
+		wb.methodHandler.getLogger(nil).Warn("websocket: failed to upgrade", "error", err)
 		return true
 	}
 	client := NewWSClient(wb, wb.methodHandler, conn, req)
@@ -122,7 +122,7 @@ func (w *WSClient) reader() {
 		messageType, p, err := w.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, 1001, 1005, 1006) {
-				w.methodHandler.logger.Warn("wsClient.read", "error", err)
+				w.methodHandler.getLogger(nil).Warn("websocket: unexpected close error", "error", err)
 			}
 			return
 		}
@@ -169,7 +169,7 @@ func (w *WSClient) writer() {
 
 			if err := w.conn.WriteMessage(websocket.TextMessage, next); err != nil {
 				if err != websocket.ErrCloseSent && !errors.Is(err, net.ErrClosed) {
-					w.methodHandler.logger.Warn("wsClient.writer", "error", err)
+					w.methodHandler.getLogger(nil).Warn("websocket: failed to write text message", "error", err)
 				}
 				return
 			}
@@ -178,7 +178,7 @@ func (w *WSClient) writer() {
 			w.conn.SetWriteDeadline(time.Now().Add(w.ws.options.WriteWait))
 			if err := w.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				if err != websocket.ErrCloseSent && !errors.Is(err, net.ErrClosed) {
-					w.methodHandler.logger.Warn("wsClient.writer", "error", err)
+					w.methodHandler.getLogger(nil).Warn("websocket: failed to write ping message", "error", err)
 				}
 				return
 			}

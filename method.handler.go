@@ -54,7 +54,6 @@ type MethodHandler struct {
 	endpoints    map[string]apiEndpoint
 	errorEncoder Secret
 	opts         *MethodHandlerOptions
-	logger       *slog.Logger
 }
 
 // MissingValidationLevel allows us to set
@@ -118,8 +117,25 @@ func NewMethodHandler(
 		endpoints:    map[string]apiEndpoint{},
 		errorEncoder: errorEncoder,
 		opts:         opts,
-		logger:       factory.logger,
 	}
+}
+
+// in order to make sure to get an initialized logger with all the
+// information about the "surrounding" context, let's first try
+// to fetch the logger from the context before using it
+func (m *MethodHandler) getLogger(ctx *Context) (out *slog.Logger) {
+	// in case no context is given, return the default logger
+	if ctx == nil {
+		return m.factory.logger
+	}
+
+	defer func() {
+		if err := recover(); err != nil {
+			out = m.factory.logger
+		}
+	}()
+	out = RequireLogger(ctx)
+	return out
 }
 
 // GetSystem returns a system. The function will panic in
@@ -248,11 +264,11 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 				case MissingValidationLevelIgnore:
 					// do nothing
 				case MissingValidationLevelInfo:
-					m.logger.Info(errStr)
+					m.getLogger(nil).Info(errStr)
 				case MissingValidationLevelWarn:
-					m.logger.Warn(errStr)
+					m.getLogger(nil).Warn(errStr)
 				case MissingValidationLevelError:
-					m.logger.Error(errStr)
+					m.getLogger(nil).Error(errStr)
 				case MissingValidationLevelFatal:
 					fallthrough
 				default:
@@ -345,7 +361,7 @@ func (m *MethodHandler) processRpcMessages(
 	data []byte,
 ) (resp []any, batch bool) {
 	if len(data) == 0 {
-		m.logger.Info("method handler: empty body received")
+		m.getLogger(nil).Info("method handler: empty body received")
 		resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 		return
 	}
@@ -361,14 +377,14 @@ func (m *MethodHandler) processRpcMessages(
 	if data[0] == '[' {
 		// unmarshal array
 		if err := dec.Decode(&rpcRequests); err != nil {
-			m.logger.Warn("method handler: parse error: ", "error", err)
+			m.getLogger(nil).Warn("method handler: parse error: ", "error", err)
 			resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 			return
 		}
 
 		// fail on empty array
 		if len(rpcRequests) == 0 {
-			m.logger.Warn("method handler: empty request array received")
+			m.getLogger(nil).Warn("method handler: empty request array received")
 			resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 			return
 		}
@@ -379,7 +395,7 @@ func (m *MethodHandler) processRpcMessages(
 		// unmarshal single item
 		var rawRequest json.RawMessage
 		if err := dec.Decode(&rawRequest); err != nil {
-			m.logger.Warn("method handler: parse error: ", "error", err)
+			m.getLogger(nil).Warn("method handler: parse error: ", "error", err)
 			resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 			return
 		}
@@ -387,7 +403,7 @@ func (m *MethodHandler) processRpcMessages(
 
 	} else {
 		// fail on anything except arrays and objects
-		m.logger.Warn("method handler: invalid payload received; could not find neither an array nor an object")
+		m.getLogger(nil).Warn("method handler: invalid payload received; could not find neither an array nor an object")
 		resp = []any{NewRpcErrorResponse(nil, ErrParse)}
 		return
 	}
@@ -402,7 +418,7 @@ func (m *MethodHandler) processRpcMessages(
 		// rpc request format
 		rpcRequest := &RpcRequest{}
 		if err := json.Unmarshal(_rpcRequest, rpcRequest); err != nil {
-			m.logger.Warn("method handler: parse error: ", "error", err)
+			m.getLogger(nil).Warn("method handler: parse error: ", "error", err)
 			resp = append(resp, NewRpcErrorResponse(nil, ErrParse))
 			continue
 		}
@@ -471,10 +487,11 @@ func (m *MethodHandler) processRpcMessage(
 }
 
 func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata []byte) (any, error) {
+
 	// retrieve rpc handler
 	handler, ok := m.endpoints[rpcRequest.Method]
 	if !ok {
-		m.logger.Warn("method handler: endpoint not found", "method", rpcRequest.Method)
+		m.getLogger(ctx).Warn("method handler: endpoint not found", "method", rpcRequest.Method)
 		return nil, ErrMethodNotFound
 	}
 
@@ -516,7 +533,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 			}()
 
 			if err != nil {
-				m.logger.Info(
+				m.getLogger(ctx).Info(
 					"method handler: validation error",
 					"error", err,
 					"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)),
@@ -541,7 +558,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 		}()
 
 		if err != nil {
-			m.logger.Warn(fmt.Sprintf("method handler: provider for type '%s' failed", rti.String()),
+			m.getLogger(ctx).Warn(fmt.Sprintf("method handler: provider for type '%s' failed", rti.String()),
 				"error", err,
 				"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)))
 			return nil, err
@@ -571,7 +588,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 					}
 
 					// let's log the unintended panic
-					m.logger.Error("method handler: panic",
+					m.getLogger(ctx).Error("method handler: panic",
 						"error", recoverErr,
 						"stack", stack,
 						"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)),
