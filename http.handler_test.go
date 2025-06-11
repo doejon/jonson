@@ -13,19 +13,19 @@ import (
 
 func parseHttpResponse(wtr *httptest.ResponseRecorder, out any) (*Error, error) {
 	content, _ := io.ReadAll(wtr.Body)
-	if wtr.Code > 400 {
-		// we need to unmarshal error
+
+	// For HttpMethodHandler, the status code reflects the error type.
+	if wtr.Code >= 400 {
 		e := &Error{}
-		err := json.Unmarshal(content, e)
-		if err != nil {
-			return nil, err
+		if err := json.Unmarshal(content, e); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal error response (status %d): %w. Body: %s", wtr.Code, err, string(content))
 		}
 		return e, nil
 	}
+
 	// we need to unmarshal result
 	if out != nil {
-		err := json.Unmarshal(content, out)
-		if err != nil {
+		if err := json.Unmarshal(content, out); err != nil {
 			return nil, err
 		}
 	}
@@ -40,58 +40,54 @@ func parseHttpRpcResponse(wtr *httptest.ResponseRecorder, out any) (*Error, erro
 
 	type rpcResponse struct {
 		RpcResponseHeader
-		Error  *Error `json:"error"`
-		Result *json.RawMessage
+		Error  *Error           `json:"error"`
+		Result *json.RawMessage `json:"result"`
 	}
 
-	dec := json.NewDecoder(wtr.Body)
-	rpcResp := &rpcResponse{}
-	if err := dec.Decode(rpcResp); err != nil {
-		return nil, err
-	}
-	if rpcResp.Error != nil && rpcResp.Result != nil {
-		return nil, fmt.Errorf("rpc response either consists of an error _or_ a result, never both")
-	}
-
-	if rpcResp.Error != nil {
-		return rpcResp.Error, nil
-	}
-	if rpcResp.Result == nil {
-		return nil, nil
-	}
-
-	// let's unmarshal expected response
-	err := json.Unmarshal(*rpcResp.Result, out)
+	bodyBytes, err := io.ReadAll(wtr.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	return nil, nil
-}
-
-func newHttpRpcRequest(rpcMethod string, data any) *http.Request {
-
-	req := RpcRequest{
-		Version: "2.0",
-		ID:      []byte("1"),
-		Method:  rpcMethod,
-		Params:  nil,
+	if len(bodyBytes) == 0 {
+		return nil, fmt.Errorf("empty response body")
 	}
-	if data != nil {
-		p, err := json.Marshal(data)
-		if err != nil {
-			panic(err)
+
+	var singleResp *rpcResponse
+
+	// The HttpRpcHandler may wrap a single response in an array.
+	if bodyBytes[0] == '[' {
+		var batchResp []*rpcResponse
+		if err := json.Unmarshal(bodyBytes, &batchResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal batch response: %w. Body: %s", err, string(bodyBytes))
 		}
-		req.Params = p
+		if len(batchResp) == 0 {
+			return nil, fmt.Errorf("received empty array response")
+		}
+		singleResp = batchResp[0]
+	} else {
+		singleResp = &rpcResponse{}
+		if err := json.Unmarshal(bodyBytes, singleResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal single response: %w. Body: %s", err, string(bodyBytes))
+		}
 	}
 
-	b := bytes.NewBuffer([]byte{})
-	enc := json.NewEncoder(b)
-	enc.Encode(req)
+	if singleResp.Error != nil && singleResp.Result != nil {
+		return nil, fmt.Errorf("rpc response either consists of an error _or_ a result, never both")
+	}
 
-	httpReq, _ := http.NewRequest("POST", "/rpc", b)
+	if singleResp.Error != nil {
+		return singleResp.Error, nil
+	}
+	if singleResp.Result == nil {
+		return nil, nil
+	}
 
-	return httpReq
+	if err := json.Unmarshal(*singleResp.Result, out); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }
 
 func TestHttpHandler(t *testing.T) {
@@ -278,12 +274,50 @@ func TestHttpRpcHandler(t *testing.T) {
 
 	httpRpcHandler := NewHttpRpcHandler(methodHandler, "/rpc")
 
-	t.Run("expect error since endpoint does not exist", func(t *testing.T) {
+	// NewServer takes one or more jonson.Handler and returns an http.Handler
+	jonsonServer := NewServer(httpRpcHandler)
+
+	server := httptest.NewServer(jonsonServer)
+	defer server.Close()
+
+	// Helper to make real HTTP requests to the test server
+	makeRequest := func(rpcMethod string, data any) *httptest.ResponseRecorder {
+		reqPayload := RpcRequest{
+			Version: "2.0",
+			ID:      []byte(`"1"`),
+			Method:  rpcMethod,
+		}
+		if data != nil {
+			p, err := json.Marshal(data)
+			if err != nil {
+				t.Fatalf("Failed to marshal request params: %v", err)
+			}
+			reqPayload.Params = p
+		}
+
+		body, err := json.Marshal(reqPayload)
+		if err != nil {
+			t.Fatalf("Failed to marshal request body: %v", err)
+		}
+
+		// Make a real POST request to the running test server
+		resp, err := http.Post(server.URL+"/rpc", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("HTTP POST request failed: %v", err)
+		}
+
+		// Create a ResponseRecorder to return the response
 		wtr := httptest.NewRecorder()
-		req := newHttpRpcRequest("test-system/unknown.v1", nil)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		wtr.Body.Write(bodyBytes)
+		wtr.Code = resp.StatusCode
+		_ = resp.Body.Close()
 
-		httpRpcHandler.Handle(wtr, req)
+		return wtr
+	}
 
+	t.Run("expect error since endpoint does not exist", func(t *testing.T) {
+		wtr := makeRequest("test-system/unknown.v1", nil)
 		rpcErr, err := parseHttpRpcResponse(wtr, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -294,11 +328,8 @@ func TestHttpRpcHandler(t *testing.T) {
 	})
 
 	t.Run("check access to default providers", func(t *testing.T) {
-		wtr := httptest.NewRecorder()
-		req := newHttpRpcRequest("test-system/check-requirables.v1", nil)
-
-		httpRpcHandler.Handle(wtr, req)
-		resErr, err := parseHttpResponse(wtr, nil)
+		wtr := makeRequest("test-system/check-requirables.v1", nil)
+		resErr, err := parseHttpRpcResponse(wtr, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,11 +339,7 @@ func TestHttpRpcHandler(t *testing.T) {
 	})
 
 	t.Run("expect current-time to return current time", func(t *testing.T) {
-		wtr := httptest.NewRecorder()
-		req := newHttpRpcRequest("test-system/current-time.v1", nil)
-
-		httpRpcHandler.Handle(wtr, req)
-
+		wtr := makeRequest("test-system/current-time.v1", nil)
 		result := &CurrentTimeV1Result{}
 		_, err := parseHttpRpcResponse(wtr, result)
 		if err != nil {
@@ -324,12 +351,8 @@ func TestHttpRpcHandler(t *testing.T) {
 	})
 
 	t.Run("calls method me.v1", func(t *testing.T) {
-		wtr := httptest.NewRecorder()
 		testProvider.setLoggedIn(true)
-
-		req := newHttpRpcRequest("test-system/me.v1", nil)
-
-		httpRpcHandler.Handle(wtr, req)
+		wtr := makeRequest("test-system/me.v1", nil)
 		result := &MeV1Result{}
 		_, err := parseHttpRpcResponse(wtr, result)
 		if err != nil {
@@ -341,12 +364,8 @@ func TestHttpRpcHandler(t *testing.T) {
 	})
 
 	t.Run("calls method me.v1 and fails due to missing permission", func(t *testing.T) {
-		wtr := httptest.NewRecorder()
 		testProvider.setLoggedIn(false)
-
-		req := newHttpRpcRequest("test-system/me.v1", nil)
-
-		httpRpcHandler.Handle(wtr, req)
+		wtr := makeRequest("test-system/me.v1", nil)
 		errResult, err := parseHttpRpcResponse(wtr, nil)
 		if err != nil {
 			t.Fatal(err)
