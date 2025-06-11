@@ -141,34 +141,31 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 
-	// no batch response
-	if !batch {
-		// single response
-		if resultResp, ok := resp[0].(*RpcResultResponse); ok {
-			// If there are any registered mutators, run them
-			for _, mutator := range h.methodHandler.opts.ResponseMutators {
-				mutator.Mutate(resultResp.Result, h.methodHandler.getLogger(nil))
-			}
-		}
-
+	// 1. Apply mutators to all responses
+	if h.methodHandler.opts != nil && h.methodHandler.opts.ResponseMutators != nil {
+		logger := h.methodHandler.getLogger(nil)
 		for _, r := range resp {
 			if resultResp, ok := r.(*RpcResultResponse); ok {
 				for _, mutator := range h.methodHandler.opts.ResponseMutators {
-					mutator.Mutate(resultResp.Result, h.methodHandler.getLogger(nil))
+					mutator.Mutate(resultResp.Result, logger)
 				}
 			}
 		}
-
-		b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
-		w.WriteHeader(http.StatusOK)
-		w.Write(b)
-		return true
 	}
 
-	// batch response
-	b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
+	var b []byte
+	if !batch {
+		// For a single request, marshal only the first (and only) element.
+		b, _ = h.methodHandler.opts.JsonHandler.Marshal(resp[0])
+	} else {
+		// For a batch request, marshal the entire slice.
+		b, _ = h.methodHandler.opts.JsonHandler.Marshal(resp)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b)
+	_, _ = w.Write(b)
+
 	return true
 }
 
