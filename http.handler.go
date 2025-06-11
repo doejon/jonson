@@ -118,7 +118,7 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	// the http rpc handler only accepts post to prevent from xss scripting
 	if req.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write(respMethodNotAllowed)
+		_, _ = w.Write(respMethodNotAllowed)
 		return true
 	}
 
@@ -144,7 +144,22 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	// no batch response
 	if !batch {
 		// single response
-		b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp[0])
+		if resultResp, ok := resp[0].(*RpcResultResponse); ok {
+			// If there are any registered mutators, run them
+			for _, mutator := range h.methodHandler.opts.ResponseMutators {
+				mutator.Mutate(resultResp.Result, h.methodHandler.getLogger(nil))
+			}
+		}
+
+		for _, r := range resp {
+			if resultResp, ok := r.(*RpcResultResponse); ok {
+				for _, mutator := range h.methodHandler.opts.ResponseMutators {
+					mutator.Mutate(resultResp.Result, h.methodHandler.getLogger(nil))
+				}
+			}
+		}
+
+		b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
 		w.WriteHeader(http.StatusOK)
 		w.Write(b)
 		return true
@@ -218,8 +233,15 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	httpStatus := http.StatusOK
 	var dataToMarshal = resp
 	if ok {
+		// Before extracting the result for marshaling, apply any registered response mutators.
+		if h.methodHandler.opts != nil && h.methodHandler.opts.ResponseMutators != nil {
+			for _, mutator := range h.methodHandler.opts.ResponseMutators {
+				mutator.Mutate(successResp.Result, h.methodHandler.getLogger(nil))
+			}
+		}
 		dataToMarshal = successResp.Result
 	}
+
 	errorResp, ok := resp.(*RpcErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
