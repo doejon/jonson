@@ -162,7 +162,7 @@ func (s *System) GetV1(ctx *jonson.Context, caller *jonson.Private) error {
 }
 
 func GetV1(ctx *jonson.Context) error {
-	_, err := ctx.CallMethod("system/get.v1", jonson.RpcHttpMethodPost, nil, nil)
+	_, err := ctx.CallMethod("system/get.v1", jonson.RpcHttpMethodPost, nil)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (s *System) GetNestedV1(ctx *jonson.Context, caller *jonson.Private, params
 
 // GetNestedV1 calls GetNestedV1
 func GetNestedV1(ctx *jonson.Context, params *GetNestedV1Params) (*GetNestedV1Result, error) {
-	out, err := ctx.CallMethod("system/get-nested.v1", jonson.RpcHttpMethodPost, params, nil)
+	out, err := ctx.CallMethod("system/get-nested.v1", jonson.RpcHttpMethodPost, params)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *System) SetV1(ctx *jonson.Context, caller *jonson.Private) error {
 
 // SetV1 calls SetV1
 func SetV1(ctx *jonson.Context) error {
-	_, err := ctx.CallMethod("system/set.v1", jonson.RpcHttpMethodPost, nil, nil)
+	_, err := ctx.CallMethod("system/set.v1", jonson.RpcHttpMethodPost, nil)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (s *System) ProcessV1(ctx *jonson.Context, caller *jonson.Private) error {
 
 // ProcessV1 calls ProcessV1
 func ProcessV1(ctx *jonson.Context) error {
-	_, err := ctx.CallMethod("system/process.v1", jonson.RpcHttpMethodPost, nil, nil)
+	_, err := ctx.CallMethod("system/process.v1", jonson.RpcHttpMethodPost, nil)
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func (s *System) ProcessV2(ctx *jonson.Context, caller *jonson.Private) error {
 
 // ProcessV2 calls ProcessV2
 func ProcessV2(ctx *jonson.Context) error {
-	_, err := ctx.CallMethod("system/process.v2", jonson.RpcHttpMethodPost, nil, nil)
+	_, err := ctx.CallMethod("system/process.v2", jonson.RpcHttpMethodPost, nil)
 	if err != nil {
 		return err
 	}

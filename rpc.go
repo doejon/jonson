@@ -53,12 +53,12 @@ type RpcNotification struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-func NewRpcNotification(method string, payload any) *RpcNotification {
+func NewRpcNotification(ctx *Context, method string, payload any) *RpcNotification {
 	var params json.RawMessage
 	if payloadRaw, ok := payload.(json.RawMessage); ok {
 		params = payloadRaw
 	} else {
-		params, _ = json.Marshal(payload)
+		params, _ = RequireJsonHandler(ctx).Marshal(payload)
 	}
 
 	return &RpcNotification{
@@ -73,16 +73,9 @@ func (r *RpcRequest) UnmarshalAndValidate(
 	ctx *Context,
 	errEncoder Secret,
 	out any,
-	bindata []byte,
 ) error {
+	dec := RequireJsonHandler(ctx).NewDecoder(bytes.NewReader([]byte(r.Params)))
 
-	_, allowUnknownFields := out.(AllowUnknownFieldsParams)
-
-	dec := json.NewDecoder(bytes.NewReader([]byte(r.Params)))
-	if !allowUnknownFields {
-		dec.DisallowUnknownFields()
-	}
-	dec.UseNumber()
 	if err := dec.Decode(out); err != nil {
 		return ErrInvalidParams.CloneWithData(&ErrorData{
 			Debug: errEncoder.Encode(err.Error()),
@@ -96,18 +89,6 @@ func (r *RpcRequest) UnmarshalAndValidate(
 				},
 			},
 		})
-	}
-
-	// optional: if bindata is set set a field called BinData in the target struct
-	if bindata != nil {
-		rv := reflect.ValueOf(out).Elem()
-		rt := rv.Type()
-		for i := 0; i < rt.NumField(); i++ {
-			if rt.Field(i).Name == "Bindata" {
-				rv.Field(i).Set(reflect.ValueOf(bindata))
-				break
-			}
-		}
 	}
 
 	// start validation process in case the

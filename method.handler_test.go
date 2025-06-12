@@ -126,7 +126,7 @@ func TestMethodHandler(t *testing.T) {
 
 	t.Run("can get current time", func(t *testing.T) {
 		ctx := NewContext(context.Background(), factory, methodHandler)
-		_res, err := methodHandler.CallMethod(ctx, "test-system/current-time.v1", RpcHttpMethodGet, nil, nil)
+		_res, err := methodHandler.CallMethod(ctx, "test-system/current-time.v1", RpcHttpMethodGet, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +142,7 @@ func TestMethodHandler(t *testing.T) {
 		testProvider.setLoggedIn(true)
 
 		ctx := NewContext(context.Background(), factory, methodHandler)
-		_, err := methodHandler.CallMethod(ctx, "test-system/me-error.v1", RpcHttpMethodGet, nil, nil)
+		_, err := methodHandler.CallMethod(ctx, "test-system/me-error.v1", RpcHttpMethodGet, nil)
 		if err == nil {
 			t.Fatal("expected call to fail")
 		}
@@ -158,7 +158,7 @@ func TestMethodHandler(t *testing.T) {
 		testProvider.setLoggedIn(false)
 
 		ctx := NewContext(context.Background(), factory, methodHandler)
-		_, err := methodHandler.CallMethod(ctx, "test-system/me-error.v1", RpcHttpMethodGet, nil, nil)
+		_, err := methodHandler.CallMethod(ctx, "test-system/me-error.v1", RpcHttpMethodGet, nil)
 		if err == nil {
 			t.Fatal("expected call to fail")
 		}
@@ -174,13 +174,13 @@ func TestMethodHandler(t *testing.T) {
 		testProvider.setLoggedIn(true)
 
 		ctx := NewContext(context.Background(), factory, methodHandler)
-		_, err := methodHandler.CallMethod(ctx, "test-system/me.v1", RpcHttpMethodGet, nil, nil)
+		_, err := methodHandler.CallMethod(ctx, "test-system/me.v1", RpcHttpMethodGet, nil)
 		if err != nil {
 			t.Fatalf("expected call succeed: %s", err)
 		}
 
 		testProvider.setLoggedIn(false)
-		_, err = methodHandler.CallMethod(ctx, "test-system/me.v1", RpcHttpMethodGet, nil, nil)
+		_, err = methodHandler.CallMethod(ctx, "test-system/me.v1", RpcHttpMethodGet, nil)
 		if err == nil {
 			t.Fatalf("expected call fail: user got logged out")
 		}
@@ -191,7 +191,7 @@ func TestMethodHandler(t *testing.T) {
 		testProvider.setLoggedIn(true)
 
 		ctx := NewContext(context.Background(), factory, methodHandler)
-		_res, err := methodHandler.CallMethod(ctx, "test-system/me.v1", RpcHttpMethodGet, nil, nil)
+		_res, err := methodHandler.CallMethod(ctx, "test-system/me.v1", RpcHttpMethodGet, nil)
 
 		if err != nil {
 			t.Fatalf("expected call succeed: %s", err)
@@ -211,7 +211,7 @@ func TestMethodHandler(t *testing.T) {
 		ctx := NewContext(context.Background(), factory, methodHandler)
 		_res, err := methodHandler.CallMethod(ctx, "test-system/get-profile.v1", RpcHttpMethodPost, &GetProfileV1Params{
 			Uuid: testAccountUuid,
-		}, nil)
+		})
 
 		if err != nil {
 			t.Fatalf("expected call succeed: %s", err)

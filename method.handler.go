@@ -83,6 +83,7 @@ type MethodHandlerOptions struct {
 	// allows you to intercept the rpc log message before it reaches the final
 	// log; This allows you to e.g. hide parameters
 	RpcRequestLogInfoInterceptor func(info *RpcRequestLogInfo) *RpcRequestLogInfo
+	JsonHandler                  JsonHandler
 }
 
 func GetDefaultMethodName(system string, method string, version uint64) string {
@@ -106,9 +107,13 @@ func NewMethodHandler(
 			return x
 		}
 	}
+	if opts.JsonHandler == nil {
+		opts.JsonHandler = NewDefaultJsonHandler()
+	}
 
 	// register the error encoder
 	factory.RegisterProvider(newSecretProvider(errorEncoder))
+	factory.RegisterProvider(newJsonHandlerProvider(opts.JsonHandler))
 
 	return &MethodHandler{
 		factory:      factory,
@@ -306,8 +311,8 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 
 var _callMethodId = json.RawMessage("-1")
 
-func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod RpcHttpMethod, payload any, bindata []byte) (any, error) {
-	jsonPayload, err := json.Marshal(payload)
+func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod RpcHttpMethod, payload any) (any, error) {
+	jsonPayload, err := m.opts.JsonHandler.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +343,7 @@ func (m *MethodHandler) CallMethod(_ctx *Context, method string, rpcHttpMethod R
 		// we do not really care about the id here since we return the value right away
 		ID:     _callMethodId,
 		Params: json.RawMessage(jsonPayload),
-	}, bindata)
+	})
 
 	// finalize the context used for the current call
 	err = ctx.Finalize(err)
@@ -368,10 +373,9 @@ func (m *MethodHandler) processRpcMessages(
 
 	var (
 		rpcRequests []json.RawMessage
-		bindata     []byte
 	)
 
-	dec := json.NewDecoder(bytes.NewReader(data))
+	dec := m.opts.JsonHandler.NewDecoder(bytes.NewReader(data))
 
 	// we might either get an array of calls or a single call. let's inspect the first character in body to decide
 	if data[0] == '[' {
@@ -408,26 +412,19 @@ func (m *MethodHandler) processRpcMessages(
 		return
 	}
 
-	if off := dec.InputOffset(); int64(len(data))-off > 1 {
-		// we have bindata remaining at the end, use it
-		bindata = data[off+1:]
-	}
-
 	for _, _rpcRequest := range rpcRequests {
 		// try to unmarshal the request message into an
 		// rpc request format
 		rpcRequest := &RpcRequest{}
-		if err := json.Unmarshal(_rpcRequest, rpcRequest); err != nil {
+		if err := m.opts.JsonHandler.Unmarshal(_rpcRequest, rpcRequest); err != nil {
 			m.getLogger(nil).Warn("method handler: parse error: ", "error", err)
 			resp = append(resp, NewRpcErrorResponse(nil, ErrParse))
 			continue
 		}
-		if rpcResponse := m.processRpcMessage(source, httpMethod, r, w, ws, rpcRequest, bindata); rpcResponse != nil {
+		if rpcResponse := m.processRpcMessage(source, httpMethod, r, w, ws, rpcRequest); rpcResponse != nil {
 			// ares is nil if we don't have to add a response (notifications)
 			resp = append(resp, rpcResponse)
 		}
-		// even if we had bindata set, make sure to clear it after passing it to the first handler
-		bindata = nil
 	}
 
 	return
@@ -440,7 +437,6 @@ func (m *MethodHandler) processRpcMessage(
 	w http.ResponseWriter,
 	ws *WSClient,
 	rpcRequest *RpcRequest,
-	bindata []byte,
 ) any {
 	// create bounded context and store request details
 	ctx := NewContext(r.Context(), m.factory, m)
@@ -461,7 +457,7 @@ func (m *MethodHandler) processRpcMessage(
 	})
 
 	// do the actual api call
-	res, err := m.callMethod(ctx, rpcRequest, bindata)
+	res, err := m.callMethod(ctx, rpcRequest)
 
 	// finalize our context
 	err = ctx.Finalize(err)
@@ -486,7 +482,7 @@ func (m *MethodHandler) processRpcMessage(
 
 }
 
-func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata []byte) (any, error) {
+func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest) (any, error) {
 
 	// retrieve rpc handler
 	handler, ok := m.endpoints[rpcRequest.Method]
@@ -527,7 +523,6 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest, bindata
 					ctx,
 					m.errorEncoder,
 					params.Interface(),
-					bindata,
 				)
 				return
 			}()

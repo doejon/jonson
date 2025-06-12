@@ -7,9 +7,9 @@ import (
 )
 
 
-// account.go:20 -- MeV1
+// account.go -- MeV1
 func MeV1(ctx *jonson.Context) (*MeV1Result, error) {
-	v, err := ctx.CallMethod("account/me.v1", jonson.RpcHttpMethodGet, nil, nil)
+	v, err := ctx.CallMethod("account/me.v1", jonson.RpcHttpMethodGet, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -19,9 +19,9 @@ func MeV1(ctx *jonson.Context) (*MeV1Result, error) {
 	return nil, nil
 }
 
-// account.go:42 -- GetProfileV1
+// account.go -- GetProfileV1
 func GetProfileV1(ctx *jonson.Context, p *GetProfileV1Params) (*GetProfileV1Result, error) {
-	v, err := ctx.CallMethod("account/get-profile.v1", jonson.RpcHttpMethodPost, p, nil)
+	v, err := ctx.CallMethod("account/get-profile.v1", jonson.RpcHttpMethodPost, p)
 	if err != nil {
 		return nil, err
 	}
@@ -29,4 +29,14 @@ func GetProfileV1(ctx *jonson.Context, p *GetProfileV1Params) (*GetProfileV1Resu
 		return v.(*GetProfileV1Result), nil
 	}
 	return nil, nil
+}
+
+// account.go -- ProcessV1
+func ProcessV1(ctx *jonson.Context) error {
+	_, err := ctx.CallMethod("account/process.v1", jonson.RpcHttpMethodGet, nil)
+	if err != nil {
+		return err
+	}
+	
+	return nil
 }

@@ -252,7 +252,7 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 			`
 // %s -- %s
 func %s(ctx *jonson.Context%s) %s {
-	%s := ctx.CallMethod("%s", %s, %s, nil)
+	%s := ctx.CallMethod("%s", %s, %s)
 	if err != nil {
 		return %s
 	}

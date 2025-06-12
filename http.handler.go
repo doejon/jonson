@@ -144,14 +144,14 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	// no batch response
 	if !batch {
 		// single response
-		b, _ := json.Marshal(resp[0])
+		b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp[0])
 		w.WriteHeader(http.StatusOK)
 		w.Write(b)
 		return true
 	}
 
 	// batch response
-	b, _ := json.Marshal(resp)
+	b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
 	w.WriteHeader(http.StatusOK)
 	w.Write(b)
 	return true
@@ -196,7 +196,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	// parameters are expected; Otherwise the body
 	// can/will be empty
 	if endpoint.paramsPos >= 0 {
-		err = json.NewDecoder(req.Body).Decode(&pl)
+		err = h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl)
 	}
 
 	method := RpcHttpMethod(req.Method)
@@ -211,7 +211,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 			// we do not have any IDs here -> set to -1
 			ID:     []byte("-1"),
 			Params: pl,
-		}, nil)
+		})
 	}
 
 	successResp, ok := resp.(*RpcResultResponse)
@@ -242,7 +242,8 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	}
 
 	// single response for these calls allowed only
-	b, _ := json.Marshal(dataToMarshal)
+	b, _ := h.methodHandler.opts.JsonHandler.Marshal(dataToMarshal)
+
 	// make sure we're responding with application/json for everything
 	if len(b) > 0 {
 		w.Header().Set("Content-Type", "application/json")

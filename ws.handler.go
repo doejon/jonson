@@ -1,7 +1,6 @@
 package jonson
 
 import (
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -138,13 +137,13 @@ func (w *WSClient) reader() {
 
 				if !batch {
 					// single response
-					b, _ := json.Marshal(resp[0])
+					b, _ := w.methodHandler.opts.JsonHandler.Marshal(resp[0])
 					w.send <- b
 					return
 				}
 
 				// batch response
-				b, _ := json.Marshal(resp)
+				b, _ := w.methodHandler.opts.JsonHandler.Marshal(resp)
 				w.send <- b
 			}()
 		}
@@ -197,7 +196,7 @@ func (w *WSClient) SendNotification(msg *RpcNotification) (err error) {
 		}
 	}()
 
-	raw, _ := json.Marshal(msg)
+	raw, _ := w.methodHandler.opts.JsonHandler.Marshal(msg)
 	w.send <- raw
 	return
 }

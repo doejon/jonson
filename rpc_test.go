@@ -47,13 +47,16 @@ func TestUnmarshalAndValidate(t *testing.T) {
 		Params: bdata2,
 	}
 
-	ctx := NewContext(context.Background(), nil, nil)
+	fac := NewFactory()
+	fac.RegisterProvider(newJsonHandlerProvider(NewDefaultJsonHandler()))
+
+	ctx := NewContext(context.Background(), fac, nil)
 	sec := NewDebugSecret()
 
 	t.Run("unmarshaling succeeds", func(t *testing.T) {
 
 		out1 := &Data1{}
-		err := req1.UnmarshalAndValidate(ctx, sec, out1, nil)
+		err := req1.UnmarshalAndValidate(ctx, sec, out1)
 		if err != nil {
 			t.Fatal("expected no error", err)
 		}
@@ -62,7 +65,7 @@ func TestUnmarshalAndValidate(t *testing.T) {
 		}
 
 		out2 := &Data2{}
-		err = req2.UnmarshalAndValidate(ctx, sec, out2, nil)
+		err = req2.UnmarshalAndValidate(ctx, sec, out2)
 		if err != nil {
 			t.Fatal("expected no error", err)
 		}
@@ -79,7 +82,7 @@ func TestUnmarshalAndValidate(t *testing.T) {
 	t.Run("unmarshaling fails with unknown fields", func(t *testing.T) {
 
 		out1 := &Data1{}
-		err := req2.UnmarshalAndValidate(ctx, sec, out1, nil)
+		err := req2.UnmarshalAndValidate(ctx, sec, out1)
 		if err == nil {
 			t.Fatal("unknown fields must fail")
 		}
@@ -88,7 +91,7 @@ func TestUnmarshalAndValidate(t *testing.T) {
 	t.Run("unmarshaling with unknown fields succeeds in case the data type implements AllowUnknownFieldsParams", func(t *testing.T) {
 
 		out1 := &TestDataUnknownFields{}
-		err := req2.UnmarshalAndValidate(ctx, sec, out1, nil)
+		err := req2.UnmarshalAndValidate(ctx, sec, out1)
 		if err != nil {
 			t.Fatal("unknown fields are allowed")
 		}

@@ -227,8 +227,8 @@ func (c *Context) Finalize(err error) error {
 	})
 }
 
-func (c *Context) CallMethod(method string, rpcHttpMethod RpcHttpMethod, payload any, bindata []byte) (any, error) {
-	v, err := c.methodHandler.CallMethod(c, method, rpcHttpMethod, payload, bindata)
+func (c *Context) CallMethod(method string, rpcHttpMethod RpcHttpMethod, payload any) (any, error) {
+	v, err := c.methodHandler.CallMethod(c, method, rpcHttpMethod, payload)
 	if err != nil {
 		return nil, err
 	}
