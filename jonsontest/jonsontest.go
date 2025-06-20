@@ -15,14 +15,14 @@ type TestContextBoundary struct {
 	opts          []NewTestContextBoundaryOpt
 	methodHandler *jonson.MethodHandler
 	factory       *jonson.Factory
-	t             *testing.T
+	t             testing.TB
 
 	stackInspector []func(s string)
 }
 
 // NewTestContext returns a new test context
 func NewContextBoundary(
-	t *testing.T,
+	t testing.TB,
 	factory *jonson.Factory,
 	methodHandler *jonson.MethodHandler,
 	opts ...NewTestContextBoundaryOpt) *TestContextBoundary {
