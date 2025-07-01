@@ -118,7 +118,7 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	// the http rpc handler only accepts post to prevent from xss scripting
 	if req.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write(respMethodNotAllowed)
+		_, _ = w.Write(respMethodNotAllowed)
 		return true
 	}
 
@@ -141,19 +141,31 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 
-	// no batch response
-	if !batch {
-		// single response
-		b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp[0])
-		w.WriteHeader(http.StatusOK)
-		w.Write(b)
-		return true
+	// 1. Apply mutators to all responses
+	if h.methodHandler.opts != nil && h.methodHandler.opts.ResponseMutators != nil {
+		logger := h.methodHandler.getLogger(nil)
+		for _, r := range resp {
+			if resultResp, ok := r.(*RpcResultResponse); ok {
+				for _, mutator := range h.methodHandler.opts.ResponseMutators {
+					mutator.Mutate(resultResp.Result, logger)
+				}
+			}
+		}
 	}
 
-	// batch response
-	b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
+	var b []byte
+	if !batch {
+		// For a single request, marshal only the first (and only) element.
+		b, _ = h.methodHandler.opts.JsonHandler.Marshal(resp[0])
+	} else {
+		// For a batch request, marshal the entire slice.
+		b, _ = h.methodHandler.opts.JsonHandler.Marshal(resp)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b)
+	_, _ = w.Write(b)
+
 	return true
 }
 
@@ -218,8 +230,15 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	httpStatus := http.StatusOK
 	var dataToMarshal = resp
 	if ok {
+		// Before extracting the result for marshaling, apply any registered response mutators.
+		if h.methodHandler.opts != nil && h.methodHandler.opts.ResponseMutators != nil {
+			for _, mutator := range h.methodHandler.opts.ResponseMutators {
+				mutator.Mutate(successResp.Result, h.methodHandler.getLogger(nil))
+			}
+		}
 		dataToMarshal = successResp.Result
 	}
+
 	errorResp, ok := resp.(*RpcErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error

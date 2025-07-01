@@ -128,11 +128,29 @@ func (w *WSClient) reader() {
 
 		if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
 			go func() {
+				// The initial call to processRpcMessages remains the same.
 				resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, RpcHttpMethodPost, w.httpRequest, nil, w, p)
 
 				if len(resp) == 0 {
 					// nothing to return but obviously everything was ok
 					return
+				}
+
+				// Apply any registered response mutators before marshaling the response.
+				// This ensures consistent response processing for the WebSocket transport layer.
+				if w.methodHandler.opts != nil && w.methodHandler.opts.ResponseMutators != nil {
+					// We use the base logger as we are in a detached goroutine.
+					logger := w.methodHandler.getLogger(nil)
+
+					// By iterating over the whole `resp` slice, we seamlessly handle
+					// both single and batch responses.
+					for _, r := range resp {
+						if resultResp, ok := r.(*RpcResultResponse); ok {
+							for _, mutator := range w.methodHandler.opts.ResponseMutators {
+								mutator.Mutate(resultResp.Result, logger)
+							}
+						}
+					}
 				}
 
 				if !batch {

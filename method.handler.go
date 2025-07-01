@@ -78,12 +78,25 @@ var validMissingValidationLevel = map[MissingValidationLevel]struct{}{
 	MissingValidationLevelFatal:  {},
 }
 
+// ResponseMutator defines an interface for components that can inspect and modify
+// a successful RPC response object before it gets marshaled to JSON.
+// This allows for creating external "plugins" for response processing.
+type ResponseMutator interface {
+	// Mutate is called for every successful response.
+	// The `result` argument is the actual data returned by the RPC method.
+	// Implementations of Mutate can modify the result in-place using reflection.
+	Mutate(result any, logger *slog.Logger)
+}
+
 type MethodHandlerOptions struct {
 	MissingValidationLevel MissingValidationLevel
 	// allows you to intercept the rpc log message before it reaches the final
 	// log; This allows you to e.g. hide parameters
 	RpcRequestLogInfoInterceptor func(info *RpcRequestLogInfo) *RpcRequestLogInfo
 	JsonHandler                  JsonHandler
+
+	// Hold response mutator plugins.
+	ResponseMutators []ResponseMutator
 }
 
 func GetDefaultMethodName(system string, method string, version uint64) string {
