@@ -63,8 +63,18 @@ func (d *DefaultJsonHandler) Unmarshal(b []byte, out any) error {
 	return json.Unmarshal(b, out)
 }
 
+type jsonEncoder struct {
+	d *json.Encoder
+}
+
+func (d *jsonEncoder) Encode(v any) error {
+	return d.d.Encode(v)
+}
+
 func (d *DefaultJsonHandler) NewEncoder(w io.Writer) JsonEncoder {
-	return json.NewEncoder(w)
+	return &jsonEncoder{
+		d: json.NewEncoder(w),
+	}
 }
 
 type jsonDecoder struct {

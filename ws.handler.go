@@ -128,6 +128,7 @@ func (w *WSClient) reader() {
 
 		if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
 			go func() {
+				// The initial call to processRpcMessages remains the same.
 				resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, RpcHttpMethodPost, w.httpRequest, nil, w, p)
 
 				if len(resp) == 0 {
@@ -135,15 +136,16 @@ func (w *WSClient) reader() {
 					return
 				}
 
+				var b []byte
 				if !batch {
 					// single response
-					b, _ := w.methodHandler.opts.JsonHandler.Marshal(resp[0])
-					w.send <- b
-					return
+					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp[0])
+
+				} else {
+					// batch response
+					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp)
 				}
 
-				// batch response
-				b, _ := w.methodHandler.opts.JsonHandler.Marshal(resp)
 				w.send <- b
 			}()
 		}

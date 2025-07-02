@@ -118,7 +118,7 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	// the http rpc handler only accepts post to prevent from xss scripting
 	if req.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write(respMethodNotAllowed)
+		_, _ = w.Write(respMethodNotAllowed)
 		return true
 	}
 
@@ -141,19 +141,19 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 
-	// no batch response
+	var b []byte
 	if !batch {
-		// single response
-		b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp[0])
-		w.WriteHeader(http.StatusOK)
-		w.Write(b)
-		return true
+		// For a single request, marshal only the first (and only) element.
+		b, _ = h.methodHandler.opts.JsonHandler.Marshal(resp[0])
+	} else {
+		// For a batch request, marshal the entire slice.
+		b, _ = h.methodHandler.opts.JsonHandler.Marshal(resp)
 	}
 
-	// batch response
-	b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b)
+	_, _ = w.Write(b)
+
 	return true
 }
 
@@ -220,6 +220,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	if ok {
 		dataToMarshal = successResp.Result
 	}
+
 	errorResp, ok := resp.(*RpcErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
