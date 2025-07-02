@@ -25,25 +25,22 @@ var _ jonson.JsonHandler = (&JsonMutatorHandler{})
 // NewJsonMutatorHandler returns a a new json handler that
 // will allow you to define mutators before encoding/decoding
 // with a provided json handler.
-func NewJsonMutatorHandler(handler jonson.JsonHandler, mutator ...any) *JsonMutatorHandler {
-	enc := []JsonEncodeMutator{}
-	dec := []JsonDecodeMutator{}
-	for _, v := range mutator {
-		if vv, ok := v.(JsonEncodeMutator); ok {
-			enc = append(enc, vv)
-		}
-		if vv, ok := v.(JsonDecodeMutator); ok {
-			dec = append(dec, vv)
-		}
-	}
-
+func NewJsonMutatorHandler(handler jonson.JsonHandler) *JsonMutatorHandler {
 	out := &JsonMutatorHandler{
-		json:          handler,
-		encodeMutator: enc,
-		decodeMutator: dec,
+		json: handler,
 	}
 
 	return out
+}
+
+func (d *JsonMutatorHandler) WithEncodeMutator(m JsonEncodeMutator) *JsonMutatorHandler {
+	d.encodeMutator = append(d.encodeMutator, m)
+	return d
+}
+
+func (d *JsonMutatorHandler) WithDecodeMutator(m JsonDecodeMutator) *JsonMutatorHandler {
+	d.decodeMutator = append(d.decodeMutator, m)
+	return d
 }
 
 func (d *JsonMutatorHandler) mutateEncode(data any) {

@@ -32,7 +32,7 @@ func BenchmarkEndToEnd_WithAndWithoutPlugin(b *testing.B) {
 		{
 			name: "WithPlugin",
 			jsonHandler: func() jonson.JsonHandler {
-				return NewJsonMutatorHandler(jonson.NewDefaultJsonHandler(), NewNilSliceNormalizer())
+				return NewJsonMutatorHandler(jonson.NewDefaultJsonHandler()).WithEncodeMutator(NewNilSliceNormalizer())
 			},
 		},
 	}
