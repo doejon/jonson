@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http/httptest"
 	"testing"
 
@@ -13,27 +12,28 @@ import (
 )
 
 func BenchmarkMutateFunction(b *testing.B) {
-	plugin := &NilSliceNormalizer{LogLevel: LogLevelNone}
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	plugin := NewNilSliceNormalizer()
 
 	for i := 0; i < b.N; i++ {
 		payload := benchmark.NewPayload()
-		plugin.Mutate(payload, logger)
+		plugin.MutateEncode(payload)
 	}
 }
 
 func BenchmarkEndToEnd_WithAndWithoutPlugin(b *testing.B) {
 	scenarios := []struct {
-		name   string
-		plugin jonson.ResponseMutator
+		name        string
+		jsonHandler func() jonson.JsonHandler
 	}{
 		{
-			name:   "WithoutPlugin",
-			plugin: nil,
+			name:        "WithoutPlugin",
+			jsonHandler: func() jonson.JsonHandler { return jonson.NewDefaultJsonHandler() },
 		},
 		{
-			name:   "WithPlugin",
-			plugin: &NilSliceNormalizer{LogLevel: LogLevelNone},
+			name: "WithPlugin",
+			jsonHandler: func() jonson.JsonHandler {
+				return NewJsonMutatorHandler(jonson.NewDefaultJsonHandler(), NewNilSliceNormalizer())
+			},
 		},
 	}
 
@@ -43,13 +43,8 @@ func BenchmarkEndToEnd_WithAndWithoutPlugin(b *testing.B) {
 			secret := jonson.NewDebugSecret()
 			testSystem := benchmark.NewBenchmarkSystem()
 
-			var mutators []jonson.ResponseMutator
-			if s.plugin != nil {
-				mutators = append(mutators, s.plugin)
-			}
-
 			methodHandler := jonson.NewMethodHandler(factory, secret, &jonson.MethodHandlerOptions{
-				ResponseMutators: mutators,
+				JsonHandler: s.jsonHandler(),
 			})
 			methodHandler.RegisterSystem(testSystem)
 

@@ -141,18 +141,6 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 
-	// 1. Apply mutators to all responses
-	if h.methodHandler.opts != nil && h.methodHandler.opts.ResponseMutators != nil {
-		logger := h.methodHandler.getLogger(nil)
-		for _, r := range resp {
-			if resultResp, ok := r.(*RpcResultResponse); ok {
-				for _, mutator := range h.methodHandler.opts.ResponseMutators {
-					mutator.Mutate(resultResp.Result, logger)
-				}
-			}
-		}
-	}
-
 	var b []byte
 	if !batch {
 		// For a single request, marshal only the first (and only) element.
@@ -230,12 +218,6 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	httpStatus := http.StatusOK
 	var dataToMarshal = resp
 	if ok {
-		// Before extracting the result for marshaling, apply any registered response mutators.
-		if h.methodHandler.opts != nil && h.methodHandler.opts.ResponseMutators != nil {
-			for _, mutator := range h.methodHandler.opts.ResponseMutators {
-				mutator.Mutate(successResp.Result, h.methodHandler.getLogger(nil))
-			}
-		}
 		dataToMarshal = successResp.Result
 	}
 

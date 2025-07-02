@@ -136,32 +136,16 @@ func (w *WSClient) reader() {
 					return
 				}
 
-				// Apply any registered response mutators before marshaling the response.
-				// This ensures consistent response processing for the WebSocket transport layer.
-				if w.methodHandler.opts != nil && w.methodHandler.opts.ResponseMutators != nil {
-					// We use the base logger as we are in a detached goroutine.
-					logger := w.methodHandler.getLogger(nil)
-
-					// By iterating over the whole `resp` slice, we seamlessly handle
-					// both single and batch responses.
-					for _, r := range resp {
-						if resultResp, ok := r.(*RpcResultResponse); ok {
-							for _, mutator := range w.methodHandler.opts.ResponseMutators {
-								mutator.Mutate(resultResp.Result, logger)
-							}
-						}
-					}
-				}
-
+				var b []byte
 				if !batch {
 					// single response
-					b, _ := w.methodHandler.opts.JsonHandler.Marshal(resp[0])
-					w.send <- b
-					return
+					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp[0])
+
+				} else {
+					// batch response
+					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp)
 				}
 
-				// batch response
-				b, _ := w.methodHandler.opts.JsonHandler.Marshal(resp)
 				w.send <- b
 			}()
 		}
