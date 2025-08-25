@@ -22,7 +22,7 @@ func main() {
 	providers.RegisterProvider(account.NewAuthenticationProvider())
 
 	// let's declare the methods to be handled
-	methods := jonson.NewMethodHandler(providers, jonson.NewAESSecret("962C27B021AD53CC1110E81E6F6C09D7A14F7911C508A43A"), &jonson.MethodHandlerOptions{
+	methods := jonson.NewMethodHandler(providers, jonson.NewAEADSecret("962C27B021AD53CC1110E81E6F6C09D7A14F7911C508A43AFBA4CFAF14543156"), &jonson.MethodHandlerOptions{
 		MissingValidationLevel: jonson.MissingValidationLevelError,
 	})
 	accountSystem := account.NewAccount()

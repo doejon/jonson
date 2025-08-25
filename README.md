@@ -467,9 +467,9 @@ In case the endpoint is called using a single endpoint for rpc or websocket, the
 
 In order to encrypt/decrypt server errors that should not be exposed to the client,
 `jonson.Secret` allows you to implement either your own encryption/decryption or use
-the built-in one with `jonson.NewAESSecret()`.
-For the AES secret, consider a key with 16, 24 or 32 bytes in length.
-In case the key does not have any of the above mentioned lengths, your program will panic.
+the built-in one with `jonson.NewAEADSecret()`.
+For the AEAD secret, consider a key of 32 bytes in length.
+In case the key does not have the above mentioned length, your program will panic.
 
 For debugging purposes, you might want to use the `jonson.NewDebugSecret()` that will
 not encrypt/decrypt but simply pass the error to the rpc response.
