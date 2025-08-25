@@ -141,13 +141,12 @@ func (o *AEADSecret) Type() string {
 // Encode may be used to embed sensitive information
 func (e *AEADSecret) Encode(_in string) string {
 	in := []byte(_in)
-	// Select a random nonce, and leave capacity for the ciphertext.
+
 	nonce := make([]byte, e.cipher.NonceSize(), e.cipher.NonceSize()+len(in)+e.cipher.Overhead())
 	if _, err := rand.Read(nonce); err != nil {
 		panic(err)
 	}
 
-	// Encrypt the message and append the ciphertext to the nonce.
 	encryptedMsg := e.cipher.Seal(nonce, nonce, in, nil)
 	return base64.StdEncoding.EncodeToString(encryptedMsg)
 }
@@ -161,10 +160,8 @@ func (e *AEADSecret) Decode(in string) (string, error) {
 		return "", errors.New("encoded text too short")
 	}
 
-	// Split nonce and ciphertext.
 	nonce, ciphertext := encoded[:e.cipher.NonceSize()], encoded[e.cipher.NonceSize():]
 
-	// Decrypt the message and check it wasn't tampered with.
 	out, err := e.cipher.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return "", err
