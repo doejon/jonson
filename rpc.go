@@ -154,6 +154,18 @@ const (
 	RpcHttpMethodUnknown RpcHttpMethod = "UNKNOWN"
 )
 
+// getRpcHttpMethod converts a string to rpc http method which can be used within jonson
+func getRpcHttpMethod(s string) RpcHttpMethod {
+	switch s {
+	case "GET":
+		return RpcHttpMethodGet
+	case "POST":
+		return RpcHttpMethodPost
+	default:
+		return RpcHttpMethodUnknown
+	}
+}
+
 type RpcSource string
 
 const (

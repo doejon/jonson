@@ -61,10 +61,9 @@ func TestServer(t *testing.T) {
 		if string(content) != "OK" {
 			t.Fatalf("expected returned body to equal 'OK', got: %s", string(content))
 		}
-
 	})
 
-	t.Run("unknown endpoints return status not foun", func(t *testing.T) {
+	t.Run("unknown endpoints return status not found", func(t *testing.T) {
 		wtr := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/unknown", nil)
 

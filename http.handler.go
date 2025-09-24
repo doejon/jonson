@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 )
 
 func init() {
@@ -79,6 +80,21 @@ func (h *HttpRegexpHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	return false
 }
 
+type regexpWriter struct {
+	http.ResponseWriter
+	written bool
+}
+
+func (w *regexpWriter) WriteHeader(status int) {
+	w.written = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *regexpWriter) Write(b []byte) (int, error) {
+	w.written = true
+	return w.ResponseWriter.Write(b)
+}
+
 // RegisterRegexp registers a direct http func for a given regexp
 func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string)) {
 	h.patterns[pattern] = func(w http.ResponseWriter, r *http.Request, parts []string) {
@@ -90,9 +106,73 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 			ResponseWriter: w,
 		})
 		ctx.StoreValue(TypeSecret, h.methodHandler.errorEncoder)
-		defer ctx.Finalize(nil)
+		ctx.StoreValue(TypeRpcMeta, &RpcMeta{
+			Method:     pattern.String(),
+			HttpMethod: getRpcHttpMethod(r.Method),
+			Source:     RpcSourceHttp,
+		})
 
-		handler(ctx, w, r, parts)
+		var err error
+		wtr := &regexpWriter{
+			ResponseWriter: w,
+			written:        false,
+		}
+		func() {
+			// catch any errors thrown by handler
+			defer func() {
+				recoverErr := getRecoverError(recover())
+
+				// fwd information to the outside world
+				if _, ok := recoverErr.(*Error); !ok {
+					stack := string(debug.Stack())
+
+					// panic, thrown unintentionally (cannot cast to an explicit jonson.Error)
+					err = &PanicError{
+						Err:    recoverErr,
+						ID:     []byte("-1"),
+						Method: pattern.String(),
+						Stack:  stack,
+					}
+
+					// let's log the unintended panic
+					h.methodHandler.getLogger(ctx).Error("method handler: panic",
+						"error", recoverErr,
+						"stack", stack,
+						"regexpHandler", pattern.String(),
+						"httpMethod", r.Method,
+					)
+				} else {
+					// the function threw an error we must handle
+					// and return to the outside world;
+					// this error was most likely thrown intentionally since it's following
+					// the jonson conventions
+					err = recoverErr
+
+					// no need to log, the developer caused the panic intentionally
+				}
+			}()
+
+			// call handler
+			handler(ctx, wtr, r, parts)
+		}()
+		ctx.Finalize(err)
+		if wtr.written {
+			return
+		}
+		if err != nil {
+			// write error response
+			errorResp, ok := err.(*Error)
+			if !ok {
+				errorResp = ErrInternal.CloneWithData(&ErrorData{
+					Debug: h.methodHandler.errorEncoder.Encode(err.Error()),
+				})
+			}
+			b, _ := h.methodHandler.opts.JsonHandler.Marshal(errorResp)
+			w.Header().Set("Content-Type", "application/json")
+			wtr.WriteHeader(errorResp.HttpStatusCode())
+			wtr.Write(b)
+			return
+		}
 	}
 }
 
@@ -224,22 +304,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	errorResp, ok := resp.(*RpcErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
-		switch errorResp.Error.Code {
-		case ErrServerMethodNotAllowed.Code:
-			httpStatus = http.StatusMethodNotAllowed
-		case ErrInvalidParams.Code:
-			fallthrough
-		case ErrParse.Code:
-			httpStatus = http.StatusBadRequest
-		case ErrUnauthorized.Code:
-			fallthrough // do not use 401 -> triggers basic auth
-		case ErrUnauthenticated.Code:
-			httpStatus = http.StatusForbidden
-		case ErrMethodNotFound.Code:
-			httpStatus = http.StatusNotFound
-		default:
-			httpStatus = http.StatusInternalServerError
-		}
+		httpStatus = errorResp.Error.HttpStatusCode()
 	}
 
 	// single response for these calls allowed only
@@ -252,5 +317,4 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	w.WriteHeader(httpStatus)
 	w.Write(b)
 	return true
-
 }

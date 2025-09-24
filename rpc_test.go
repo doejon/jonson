@@ -97,3 +97,19 @@ func TestUnmarshalAndValidate(t *testing.T) {
 		}
 	})
 }
+
+func TestGetRpcHttpMethod(t *testing.T) {
+	if getRpcHttpMethod("GET") != RpcHttpMethodGet {
+		t.Fatal("expect method to be GET")
+	}
+
+	if getRpcHttpMethod("POST") != RpcHttpMethodPost {
+		t.Fatal("expect method to be POST")
+	}
+
+	for _, v := range []string{"get", "post", "DELETE", "delete", "other"} {
+		if getRpcHttpMethod(v) != RpcHttpMethodUnknown {
+			t.Fatal("expect method to be unknown")
+		}
+	}
+}

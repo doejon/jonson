@@ -572,8 +572,9 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest) (any, e
 				recoverErr := getRecoverError(r)
 
 				// fwd information to the outside world
-				stack := string(debug.Stack())
 				if _, ok := recoverErr.(*Error); !ok {
+					stack := string(debug.Stack())
+
 					// panic, thrown unintentionally (cannot cast to an explicit jonson.Error)
 					err = &PanicError{
 						Err:    recoverErr,
