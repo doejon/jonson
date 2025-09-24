@@ -169,7 +169,7 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 			}
 			b, _ := h.methodHandler.opts.JsonHandler.Marshal(errorResp)
 			w.Header().Set("Content-Type", "application/json")
-			wtr.WriteHeader(errorResp.HttpStatusCode())
+			wtr.WriteHeader(HttpStatusCode(errorResp))
 			wtr.Write(b)
 			return
 		}
@@ -304,7 +304,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	errorResp, ok := resp.(*RpcErrorResponse)
 	if ok {
 		dataToMarshal = errorResp.Error
-		httpStatus = errorResp.Error.HttpStatusCode()
+		httpStatus = HttpStatusCode(errorResp.Error)
 	}
 
 	// single response for these calls allowed only

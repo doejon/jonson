@@ -3,6 +3,7 @@ package jonson
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"reflect"
 )
 
@@ -15,7 +16,29 @@ var (
 	ErrServerMethodNotAllowed = &Error{Code: -32000, Message: "Server error: method not allowed"}
 	ErrUnauthorized           = &Error{Code: -32001, Message: "Not authorized"}
 	ErrUnauthenticated        = &Error{Code: -32002, Message: "Not authenticated"}
+	ErrTooManyRequests        = &Error{Code: -32003, Message: "Too many requests"}
 )
+
+func HttpStatusCode(r *Error) int {
+	switch r.Code {
+	case ErrServerMethodNotAllowed.Code:
+		return http.StatusMethodNotAllowed
+	case ErrInvalidParams.Code:
+		fallthrough
+	case ErrParse.Code:
+		return http.StatusBadRequest
+	case ErrUnauthorized.Code:
+		fallthrough // do not use 401 -> triggers basic auth
+	case ErrUnauthenticated.Code:
+		return http.StatusForbidden
+	case ErrMethodNotFound.Code:
+		return http.StatusNotFound
+	case ErrTooManyRequests.Code:
+		return http.StatusTooManyRequests
+	default:
+		return http.StatusInternalServerError
+	}
+}
 
 // RpcRequest object
 type RpcRequest struct {

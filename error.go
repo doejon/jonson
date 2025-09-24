@@ -3,7 +3,6 @@ package jonson
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 )
@@ -32,25 +31,6 @@ func (e Error) String() string {
 		data = e.Data.String()
 	}
 	return fmt.Sprintf("error code: %d | message: %s | data: %s", e.Code, e.Message, data)
-}
-
-func (r *Error) HttpStatusCode() int {
-	switch r.Code {
-	case ErrServerMethodNotAllowed.Code:
-		return http.StatusMethodNotAllowed
-	case ErrInvalidParams.Code:
-		fallthrough
-	case ErrParse.Code:
-		return http.StatusBadRequest
-	case ErrUnauthorized.Code:
-		fallthrough // do not use 401 -> triggers basic auth
-	case ErrUnauthenticated.Code:
-		return http.StatusForbidden
-	case ErrMethodNotFound.Code:
-		return http.StatusNotFound
-	default:
-		return http.StatusInternalServerError
-	}
 }
 
 func (e *Error) Inspect() *ErrorInspector {

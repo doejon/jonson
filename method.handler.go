@@ -378,7 +378,8 @@ func (m *MethodHandler) processRpcMessages(
 	dec := m.opts.JsonHandler.NewDecoder(bytes.NewReader(data))
 
 	// we might either get an array of calls or a single call. let's inspect the first character in body to decide
-	if data[0] == '[' {
+	switch data[0] {
+	case '[':
 		// unmarshal array
 		if err := dec.Decode(&rpcRequests); err != nil {
 			m.getLogger(nil).Warn("method handler: parse error: ", "error", err)
@@ -395,7 +396,7 @@ func (m *MethodHandler) processRpcMessages(
 
 		batch = true
 
-	} else if data[0] == '{' {
+	case '{':
 		// unmarshal single item
 		var rawRequest json.RawMessage
 		if err := dec.Decode(&rawRequest); err != nil {
@@ -405,7 +406,7 @@ func (m *MethodHandler) processRpcMessages(
 		}
 		rpcRequests = []json.RawMessage{rawRequest}
 
-	} else {
+	default:
 		// fail on anything except arrays and objects
 		m.getLogger(nil).Warn("method handler: invalid payload received; could not find neither an array nor an object")
 		resp = []any{NewRpcErrorResponse(nil, ErrParse)}
