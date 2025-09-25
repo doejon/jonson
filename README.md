@@ -527,9 +527,11 @@ func main(){
 
   // the regexp handler allows us to define
   // regular expressions which will be handled
-  // using the default http.Request and http.ResponseWriter.
+  // using the default http.Request and http.ResponseWriter wrapped by jonson's request/response structs.
+  // Regexp function also allow you to pass other required parameters to the handler. Context however
+  // needs to be the first argument in the handler's list of argument.
   regexHandler := jonson.NewHttpRegexpHandler(methodHandler)
-  regexpHandler.RegisterRegexp("/health", func(ctx *jonson.Context, w http.ResponseWriter, r *http.Request, parts []string){
+  regexpHandler.RegisterRegexp("/health", func(ctx *jonson.Context, w *jonson.HttpResponseWriter, r *jonson.HttpRequest, parts *jonson.HttpRegexpMatchedParts){
     w.Write("UP")
   })
 

@@ -93,8 +93,8 @@ type apiEndpoint struct {
 }
 
 type MethodHandler struct {
-	factory    *Factory
-	methodName func(system string, method string, version uint64) string
+	factory *Factory
+	// methodName func(system string, method string, version uint64) string
 
 	systems      map[reflect.Type]any
 	endpoints    map[string]apiEndpoint
@@ -159,7 +159,6 @@ func NewMethodHandler(
 
 	return &MethodHandler{
 		factory:      factory,
-		methodName:   GetDefaultMethodName,
 		systems:      map[reflect.Type]any{},
 		endpoints:    map[string]apiEndpoint{},
 		errorEncoder: errorEncoder,
@@ -218,7 +217,7 @@ func (m *MethodHandler) RegisterSystem(sys any, routeDebugger ...func(s string))
 		if methodName, version := SplitGoMethodName(rtm.Name); version > 0 {
 			// we have found a valid method signature, build definition and try to register
 			for _, v := range routeDebugger {
-				v(m.methodName(systemName, methodName, version))
+				v(GetDefaultMethodName(systemName, methodName, version))
 			}
 
 			m.RegisterMethod(&MethodDefinition{
@@ -241,7 +240,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		panic(errors.New("method handler: invalid method"))
 	}
 
-	endpoint := def.System + "/" + def.Method + ".v" + strconv.FormatUint(def.Version, 10)
+	endpoint := GetDefaultMethodName(def.System, def.Method, def.Version)
 	if _, exists := m.endpoints[endpoint]; exists {
 		panic(errors.New("method handler: endpoint already registered"))
 	}
@@ -260,7 +259,6 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 
 	// we need to scan each argument from handlerFunc to see if it's compatible with our assumptions
 	var (
-		handlerName         = m.methodName(def.System, def.Method, def.Version)
 		seenTypes           = map[reflect.Type]struct{}{}
 		typeParams          reflect.Type
 		argPosParams        = -1
@@ -276,6 +274,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		TypeHttpRequest,
 		TypeHttpResponseWriter,
 		TypeWSClient,
+		TypeRpcMeta,
 	)
 
 	for i := paramShift; i < rt.NumIn(); i++ {
@@ -283,7 +282,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 
 		// check if already seen
 		if _, seen := seenTypes[rti]; seen {
-			panic(errors.New("method handler:" + handlerName + " has multiple instances of " + rti.String()))
+			panic(errors.New("method handler:" + endpoint + " has multiple instances of " + rti.String()))
 		}
 
 		// check if we have a provider
@@ -295,18 +294,18 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		// allow one custom *struct{} type for params
 		if rti.Implements(paramsSafeguardType) {
 			if typeParams != nil {
-				panic(errors.New("method handler:" + handlerName + " has additional param instance of " + rti.String()))
+				panic(errors.New("method handler:" + endpoint + " has additional param instance of " + rti.String()))
 			}
 
 			// do we have a ptr to a struct?
 			if rti.Kind() != reflect.Ptr || rti.Elem().Kind() != reflect.Struct {
-				panic(errors.New("method handler:" + handlerName + " has non ptr-to-struct param instance of " + rti.String()))
+				panic(errors.New("method handler:" + endpoint + " has non ptr-to-struct param instance of " + rti.String()))
 			}
 
 			// does the param implement ValidatedParams?
 			if !rti.Implements(validatedParamsType) {
 				// not implemented
-				errStr := handlerName + "'s param '" + rti.String() + "' does not implement 'JonsonValidate(v *jonson.Validator)' method;\n"
+				errStr := endpoint + "'s param '" + rti.String() + "' does not implement 'JonsonValidate(v *jonson.Validator)' method;\n"
 				switch m.opts.MissingValidationLevel {
 				case MissingValidationLevelIgnore:
 					// do nothing
@@ -330,16 +329,16 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		}
 
 		// fail
-		panic(errors.New("method handler: " + handlerName + " requires unknown type " + rti.String()))
+		panic(errors.New("method handler: " + endpoint + " requires unknown type " + rti.String()))
 	}
 
 	// check return types
 	if rt.NumOut() < 1 || rt.NumOut() > 2 {
-		panic(errors.New("method handler: " + handlerName + " may only return one or two arguments"))
+		panic(errors.New("method handler: " + endpoint + " may only return one or two arguments"))
 	}
 	et := rt.Out(rt.NumOut() - 1)
 	if et.Kind() != reflect.Interface || et.Name() != "error" || et.PkgPath() != "" {
-		panic(errors.New("method handler: " + handlerName + " must return error interface as last argument"))
+		panic(errors.New("method handler: " + endpoint + " must return error interface as last argument"))
 	}
 
 	m.endpoints[endpoint] = apiEndpoint{

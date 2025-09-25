@@ -2,6 +2,8 @@ package jonson
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -51,6 +53,14 @@ func RequireHttpResponseWriter(ctx *Context) *HttpResponseWriter {
 	return nil
 }
 
+type HttpRegexpMatchedParts struct {
+	Shareable
+	ShareableAcrossImpersonation
+	Parts []string
+}
+
+var TypeHttpRegexpMatchedParts = reflect.TypeOf((**HttpRegexpMatchedParts)(nil)).Elem()
+
 // The HttpRegexpHandler will accept regular expressions and
 // will register those as default http endpoints. Those methods cannot
 // be called within the rpc world
@@ -95,34 +105,66 @@ func (w *regexpWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+type registeredRegexp struct {
+	rpcMethod string
+}
+
+// WithRpcMethod defines the rpc method which will be used
+// instead of the default rpc method derived from the regexp pattern
+func (r *registeredRegexp) WithRpcMethod(method string) {
+	r.rpcMethod = method
+}
+
 // RegisterRegexp registers a direct http func for a given regexp
-func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string)) {
+func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler any) *registeredRegexp {
+	strPattern := pattern.String()
+	out := &registeredRegexp{
+		rpcMethod: strPattern,
+	}
+
+	system, method, version, err := ParseRpcMethod(strPattern)
+	if err == nil {
+		out.rpcMethod = GetDefaultMethodName(system, method, version)
+	}
+
+	rt := reflect.TypeOf(handler)
+	rv := reflect.ValueOf(handler)
+
+	// check params provided by handler
+	if err := h.checkParams(rt); err != nil {
+		panic(err)
+	}
+
+	// check if pattern has been registered twice
+	for k := range h.patterns {
+		if k.String() == strPattern {
+			panic(fmt.Sprintf("tried to register regexp pattern %s twice", strPattern))
+		}
+	}
+
 	h.patterns[pattern] = func(w http.ResponseWriter, r *http.Request, parts []string) {
+		wtr := &regexpWriter{
+			ResponseWriter: w,
+			written:        false,
+		}
+
 		ctx := NewContext(r.Context(), h.factory, h.methodHandler)
 		ctx.StoreValue(TypeHttpRequest, &HttpRequest{
 			Request: r,
 		})
 		ctx.StoreValue(TypeHttpResponseWriter, &HttpResponseWriter{
-			ResponseWriter: w,
+			ResponseWriter: wtr,
 		})
 		ctx.StoreValue(TypeSecret, h.methodHandler.errorEncoder)
-
-		system, method, version, err := ParseRpcMethod(pattern.String())
-		rpcMethod := ""
-		if err == nil {
-			rpcMethod = GetDefaultMethodName(system, method, version)
-		}
+		ctx.StoreValue(TypeHttpRegexpMatchedParts, &HttpRegexpMatchedParts{
+			Parts: parts,
+		})
 
 		ctx.StoreValue(TypeRpcMeta, &RpcMeta{
-			Method:     rpcMethod,
+			Method:     out.rpcMethod,
 			HttpMethod: getRpcHttpMethod(r.Method),
 			Source:     RpcSourceHttp,
 		})
-
-		wtr := &regexpWriter{
-			ResponseWriter: w,
-			written:        false,
-		}
 
 		func() {
 			// catch any errors thrown by handler
@@ -137,7 +179,7 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 					err = &PanicError{
 						Err:    recoverErr,
 						ID:     []byte("-1"),
-						Method: pattern.String(),
+						Method: out.rpcMethod,
 						Stack:  stack,
 					}
 
@@ -145,7 +187,7 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 					h.methodHandler.getLogger(ctx).Error("method handler: panic",
 						"error", recoverErr,
 						"stack", stack,
-						"regexpHandler", pattern.String(),
+						"regexpHandler", strPattern,
 						"httpMethod", r.Method,
 					)
 				} else {
@@ -154,18 +196,28 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 					// this error was most likely thrown intentionally since it's following
 					// the jonson conventions
 					err = recoverErr
-
 					// no need to log, the developer caused the panic intentionally
 				}
 			}()
 
+			args, err := h.buildArgs(ctx, strPattern, rt)
+			if err != nil {
+				panic(err)
+			}
+
 			// call handler
-			handler(ctx, wtr, r, parts)
+			rv.Call(args)
 		}()
-		ctx.Finalize(err)
+		// finalize context
+		err = ctx.Finalize(err)
+
 		if wtr.written {
 			return
 		}
+
+		// in case error was thrown but no response has been written yet, we got
+		// ourselves a panic. Let's respond with a well-formatted error message
+		// using json
 		if err != nil {
 			// write error response
 			errorResp, ok := err.(*Error)
@@ -181,6 +233,78 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 			return
 		}
 	}
+	return out
+}
+
+func (h *HttpRegexpHandler) buildArgs(ctx *Context, pattern string, tp reflect.Type) ([]reflect.Value, error) {
+	out := []reflect.Value{
+		reflect.ValueOf(ctx),
+	}
+
+	// first is always context, skip
+	for i := 1; i < tp.NumIn(); i++ {
+		rti := tp.In(i)
+		// call provider using panic recovery
+		v, err := func() (v any, err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = getRecoverError(r)
+				}
+			}()
+			v = ctx.Require(rti)
+			return
+		}()
+		if err != nil {
+			h.methodHandler.getLogger(ctx).Warn(fmt.Sprintf("http regexp handler: provider for type '%s' failed", rti.String()),
+				"error", err,
+				"regexpHandler", pattern,
+			)
+			return nil, err
+		}
+		out = append(out, reflect.ValueOf(v))
+	}
+
+	return out, nil
+}
+
+func (h *HttpRegexpHandler) checkParams(rt reflect.Type) error {
+	if rt.Kind() != reflect.Func {
+		panic(errors.New("http regexp handler: handler function must be a method"))
+	}
+
+	seenArgs := map[reflect.Type]struct{}{}
+	providerTypes := h.factory.Types()
+	providerTypes = append(
+		providerTypes,
+
+		TypeContext,
+		TypeHttpRequest,
+		TypeHttpResponseWriter,
+		TypeHttpRegexpMatchedParts,
+		TypeRpcMeta,
+	)
+
+	for i := 0; i < rt.NumIn(); i++ {
+		rti := rt.In(i)
+		if _, ok := seenArgs[rti]; ok {
+			return fmt.Errorf("http regexp handler: tried to require type twice: %s", rti.String())
+		}
+
+		if !isTypeSupported(providerTypes, rti) {
+			return fmt.Errorf("http regexp handler: type not supported: %s", rti.String())
+		}
+
+		seenArgs[rti] = struct{}{}
+		if i == 0 && rti != TypeContext {
+			return fmt.Errorf("http regexp handler: first argument needs to be of type jonson.Context")
+		}
+	}
+
+	if len(seenArgs) <= 0 {
+		return fmt.Errorf("http regexp handler: no function arguments provided; at least context.Context as the first argument is required")
+	}
+
+	return nil
 }
 
 type HttpRpcHandler struct {

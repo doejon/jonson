@@ -87,7 +87,7 @@ func TestGraceful(t *testing.T) {
 		regexpHandler := NewHttpRegexpHandler(fac, methods)
 
 		startedProcessing := make(chan struct{})
-		regexpHandler.RegisterRegexp(regexp.MustCompile("/process"), func(ctx *Context, w http.ResponseWriter, req *http.Request, parts []string) {
+		regexpHandler.RegisterRegexp(regexp.MustCompile("/process"), func(ctx *Context) {
 			close(startedProcessing)
 			for {
 				time.Sleep(time.Second * 1)
@@ -141,7 +141,7 @@ func TestGraceful(t *testing.T) {
 		regexpHandler := NewHttpRegexpHandler(fac, methods)
 
 		startedProcessing := make(chan struct{})
-		regexpHandler.RegisterRegexp(regexp.MustCompile("/process"), func(ctx *Context, w http.ResponseWriter, req *http.Request, parts []string) {
+		regexpHandler.RegisterRegexp(regexp.MustCompile("/process"), func(ctx *Context) {
 			graceful := RequireGraceful(ctx)
 			close(startedProcessing)
 			for graceful.IsUp() {
@@ -196,7 +196,7 @@ func TestGraceful(t *testing.T) {
 		regexpHandler := NewHttpRegexpHandler(fac, methods)
 
 		startedProcessing := make(chan struct{})
-		regexpHandler.RegisterRegexp(regexp.MustCompile("/process"), func(ctx *Context, w http.ResponseWriter, req *http.Request, parts []string) {
+		regexpHandler.RegisterRegexp(regexp.MustCompile("/process"), func(ctx *Context) {
 			graceful := RequireGraceful(ctx)
 			close(startedProcessing)
 			for !graceful.IsDown() {

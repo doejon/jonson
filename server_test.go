@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,8 +27,12 @@ func TestServer(t *testing.T) {
 	httpHandler := NewHttpMethodHandler(methodHandler)
 	regexpHandler := NewHttpRegexpHandler(factory, methodHandler)
 
-	regexpHandler.RegisterRegexp(regexp.MustCompile("/health"), func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string) {
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/health"), func(ctx *Context, w *HttpResponseWriter) {
 		w.Write([]byte("OK"))
+	})
+
+	regexpHandler.RegisterRegexp(regexp.MustCompile("^/[a-zA-Z0-9]+-[a-zA-Z0-9]+$"), func(ctx *Context, w *HttpResponseWriter, match *HttpRegexpMatchedParts) {
+		w.Write([]byte(strings.Join(match.Parts, ",")))
 	})
 
 	server := NewServer(httpHandler, regexpHandler)
@@ -63,6 +68,21 @@ func TestServer(t *testing.T) {
 		}
 	})
 
+	t.Run("handle method does serve registered regexp endpoint with pattern matching", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/a-a", nil)
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != 200 {
+			t.Fatalf("expected http status code 200, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		if string(content) != "/a-a" {
+			t.Fatalf("expected returned body to equal 'OK', got: %s", string(content))
+		}
+	})
+
 	t.Run("unknown endpoints return status not found", func(t *testing.T) {
 		wtr := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/unknown", nil)
@@ -76,6 +96,5 @@ func TestServer(t *testing.T) {
 		if string(content) != "" {
 			t.Fatalf("expected returned body to equal <empty body>, got: %s", string(content))
 		}
-
 	})
 }

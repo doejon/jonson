@@ -401,20 +401,30 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 	httpHandler := NewHttpMethodHandler(methodHandler)
 	regexpHandler := NewHttpRegexpHandler(factory, methodHandler)
 
-	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/get.v1"), func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string) {
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/get.v1"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest, parts *HttpRegexpMatchedParts) {
 		RequirePrivate(ctx)
 		w.Write([]byte("OK"))
 	})
 
-	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/panic.v1"), func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string) {
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/get-private.v1"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest, parts *HttpRegexpMatchedParts, _ *Private) {
+		w.Write([]byte("OK"))
+	})
+
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/panic.v1"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest, parts *HttpRegexpMatchedParts) {
 		panic("internal panic")
 	})
 
-	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/rpcmeta.v1"), func(ctx *Context, w http.ResponseWriter, r *http.Request, parts []string) {
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/rpcmeta.v1"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest, parts *HttpRegexpMatchedParts) {
 		meta := RequireRpcMeta(ctx)
 		b, _ := json.Marshal(meta)
 		w.Write(b)
 	})
+
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/some-other"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest, parts *HttpRegexpMatchedParts) {
+		meta := RequireRpcMeta(ctx)
+		b, _ := json.Marshal(meta)
+		w.Write(b)
+	}).WithRpcMethod("some/other-method.v1")
 
 	server := NewServer(httpHandler, regexpHandler)
 
@@ -448,11 +458,43 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 		}
 	})
 
+	t.Run("fails with unauthorized call in function args", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/sys/get-private.v1", nil)
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != 403 {
+			t.Fatalf("expected http status code 403, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		if string(content) != `{"code":-32001,"message":"Not authorized"}` {
+			t.Fatalf("expected returned body to equal 'OK', got: %s", string(content))
+		}
+	})
+
 	t.Run("succeeds with authorized call", func(t *testing.T) {
 		tac.isAuthorized = true
 
 		wtr := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/sys/get.v1", nil)
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != 200 {
+			t.Fatalf("expected http status code 200, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		if string(content) != `OK` {
+			t.Fatalf("expected returned body to equal 'OK', got: %s", string(content))
+		}
+	})
+
+	t.Run("succeeds with authorized call in function args", func(t *testing.T) {
+		tac.isAuthorized = true
+
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/sys/get-private.v1", nil)
 
 		server.ServeHTTP(wtr, req)
 		if wtr.Code != 200 {
@@ -478,6 +520,23 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 
 		content, _ := io.ReadAll(wtr.Body)
 		if string(content) != `{"Method":"sys/rpcmeta.v1","HttpMethod":"GET","Source":"http"}` {
+			t.Fatalf("expected returned body to equal rpc meta, got: %s", string(content))
+		}
+	})
+
+	t.Run("can retrieve rpc meta which has been manually defined", func(t *testing.T) {
+		tac.isAuthorized = true
+
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/some-other", nil)
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != 200 {
+			t.Fatalf("expected http status code 200, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		if string(content) != `{"Method":"some/other-method.v1","HttpMethod":"GET","Source":"http"}` {
 			t.Fatalf("expected returned body to equal rpc meta, got: %s", string(content))
 		}
 	})
