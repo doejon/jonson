@@ -2,6 +2,7 @@ package jonson
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -224,4 +225,129 @@ func TestMethodHandler(t *testing.T) {
 
 	})
 
+}
+
+func TestMethodNameHelpers(t *testing.T) {
+	type methodTest struct {
+		slug string
+
+		version uint64
+		method  string
+		system  string
+	}
+
+	for _, v := range []methodTest{
+		{
+			slug:    "MyMethodV1",
+			version: 1,
+			method:  "my-method",
+		},
+		{
+			slug:    "MyMethodx",
+			version: 0,
+			method:  "",
+		},
+	} {
+		t.Run(fmt.Sprintf("expect method/version %s to result in method '%s' and version %d", v.slug, v.method, v.version), func(t *testing.T) {
+			method, version := SplitGoMethodName(v.slug)
+			if method != v.method {
+				t.Fatal("expected method to be the same", v.method, method)
+			}
+			if version != v.version {
+				t.Fatal("expected version to be the same", v.version, version)
+			}
+		})
+	}
+
+	for _, v := range []methodTest{
+		{
+			slug:    "sys1/my-method.v10",
+			version: 10,
+			method:  "my-method",
+			system:  "sys1",
+		},
+		{
+			slug:    "sys2/my-other-method.v1",
+			version: 1,
+			method:  "my-other-method",
+			system:  "sys2",
+		},
+	} {
+		t.Run(fmt.Sprintf("expect generated system (%s) method (%s) version (%d) to result in slug '%s'", v.system, v.method, v.version, v.slug), func(t *testing.T) {
+			slug := GetDefaultMethodName(v.system, v.method, v.version)
+			if slug != v.slug {
+				t.Fatal("expected slug to match", slug, v.slug)
+			}
+		})
+	}
+
+	for _, v := range []methodTest{
+		{
+			slug:    "sys1/my-method.v10",
+			version: 10,
+			method:  "my-method",
+			system:  "sys1",
+		},
+		{
+			slug:    "sys2/my-other-method.v1",
+			version: 1,
+			method:  "my-other-method",
+			system:  "sys2",
+		},
+		{
+			slug:    "Sys2/my-other-method.v1",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+		{
+			slug:    "sys/My-other-method.v1",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+		{
+			slug:    "sys/my-other-method.vx",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+		{
+			slug:    "sys/my-other-method",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+		{
+			slug:    "sys/my-other-method*.v1",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+		{
+			slug:    "sys!/my-other-method.v1",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+		{
+			slug:    "sys/my-other-method.v-1",
+			version: 0,
+			method:  "",
+			system:  "",
+		},
+	} {
+		t.Run(fmt.Sprintf("expect slug (%s) to result in system (%s) method (%s) version (%d)", v.slug, v.system, v.method, v.version), func(t *testing.T) {
+			sys, method, version, _ := ParseRpcMethod(v.slug)
+			if sys != v.system {
+				t.Fatal("expected system to match", sys, v.system)
+			}
+			if method != v.method {
+				t.Fatal("expected method to match", method, v.method)
+			}
+			if version != v.version {
+				t.Fatal("expected version to match", version, v.version)
+			}
+		})
+	}
 }

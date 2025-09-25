@@ -244,7 +244,7 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 
 		// comment line
 		needsJonsonImport = true
-		method, version := jonson.SplitMethodName(object.Name.Name)
+		method, version := jonson.SplitGoMethodName(object.Name.Name)
 		methodName := jonson.GetDefaultMethodName(systemName, method, version)
 		fmt.Fprintf(
 			wtr,

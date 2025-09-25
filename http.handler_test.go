@@ -477,7 +477,7 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 		}
 
 		content, _ := io.ReadAll(wtr.Body)
-		if string(content) != `{"Method":"/sys/rpcmeta.v1","HttpMethod":"GET","Source":"http"}` {
+		if string(content) != `{"Method":"sys/rpcmeta.v1","HttpMethod":"GET","Source":"http"}` {
 			t.Fatalf("expected returned body to equal rpc meta, got: %s", string(content))
 		}
 	})

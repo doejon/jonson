@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strconv"
+	"strings"
 )
 
 // MethodDefinition is used by MustRegisterAPI
@@ -27,7 +28,8 @@ var (
 	matchMethodName     = regexp.MustCompile(`^(.+)V([0-9]+)$`)
 )
 
-func SplitMethodName(method string) (string, uint64) {
+// SplitGoMethodName is used to parse a method used within go code (e.g. MyEndpointV1 --> method: my-endpoint version: 1)
+func SplitGoMethodName(method string) (string, uint64) {
 	sub := matchMethodName.FindStringSubmatch(method)
 	if len(sub) != 3 {
 		return "", 0
@@ -36,6 +38,50 @@ func SplitMethodName(method string) (string, uint64) {
 	methodName := ToKebabCase(sub[1])
 	version, _ := strconv.ParseUint(sub[2], 10, 64)
 	return methodName, version
+}
+
+func GetDefaultMethodName(system string, method string, version uint64) string {
+	return system + "/" + method + ".v" + strconv.FormatUint(version, 10)
+}
+
+func ParseRpcMethod(slug string) (_system string, _method string, _version uint64, _err error) {
+	slug = strings.TrimPrefix(slug, "/")
+	parts := strings.Split(slug, "/")
+	if len(parts) != 2 {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case")
+	}
+	system := parts[0]
+	method := parts[1]
+	parts = strings.Split(method, ".v")
+	if len(parts) != 2 {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; missing version")
+	}
+	method = parts[0]
+	version, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; version not of type integer")
+	}
+	if version <= 0 {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; version <= 0")
+	}
+
+	if !validIdentifierName.MatchString(system) {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; system contains invalid characters")
+	}
+
+	if !validIdentifierName.MatchString(method) {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; method contains invalid characters")
+	}
+
+	if ToKebabCase(system) != system {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; system is not kebab-case")
+	}
+	if ToKebabCase(method) != method {
+		return "", "", 0, errors.New("an rpc method follows the format of <system>/<method>.v<version> and needs to be kebab-case; method is not kebab-case")
+	}
+
+	return system, method, uint64(version), nil
+
 }
 
 type apiEndpoint struct {
@@ -84,10 +130,6 @@ type MethodHandlerOptions struct {
 	// log; This allows you to e.g. hide parameters
 	RpcRequestLogInfoInterceptor func(info *RpcRequestLogInfo) *RpcRequestLogInfo
 	JsonHandler                  JsonHandler
-}
-
-func GetDefaultMethodName(system string, method string, version uint64) string {
-	return system + "/" + method + ".v" + strconv.FormatUint(version, 10)
 }
 
 func NewMethodHandler(
@@ -173,7 +215,7 @@ func (m *MethodHandler) RegisterSystem(sys any, routeDebugger ...func(s string))
 	for i := 0; i < rt.NumMethod(); i++ {
 		rtm := rt.Method(i)
 
-		if methodName, version := SplitMethodName(rtm.Name); version > 0 {
+		if methodName, version := SplitGoMethodName(rtm.Name); version > 0 {
 			// we have found a valid method signature, build definition and try to register
 			for _, v := range routeDebugger {
 				v(m.methodName(systemName, methodName, version))

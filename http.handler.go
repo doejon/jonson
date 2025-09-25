@@ -106,17 +106,24 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler func(
 			ResponseWriter: w,
 		})
 		ctx.StoreValue(TypeSecret, h.methodHandler.errorEncoder)
+
+		system, method, version, err := ParseRpcMethod(pattern.String())
+		rpcMethod := ""
+		if err == nil {
+			rpcMethod = GetDefaultMethodName(system, method, version)
+		}
+
 		ctx.StoreValue(TypeRpcMeta, &RpcMeta{
-			Method:     pattern.String(),
+			Method:     rpcMethod,
 			HttpMethod: getRpcHttpMethod(r.Method),
 			Source:     RpcSourceHttp,
 		})
 
-		var err error
 		wtr := &regexpWriter{
 			ResponseWriter: w,
 			written:        false,
 		}
+
 		func() {
 			// catch any errors thrown by handler
 			defer func() {
