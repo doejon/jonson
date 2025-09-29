@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/doejon/jonson"
@@ -31,9 +32,13 @@ func main() {
 	// let's declare _how_ we want to handle our calls
 	rpc := jonson.NewHttpRpcHandler(methods, "/rpc")
 	httpMethod := jonson.NewHttpMethodHandler(methods)
+	rgxp := jonson.NewHttpRegexpHandler(providers, methods)
+	rgxp.RegisterRegexp(regexp.MustCompile("/status"), func(ctx *jonson.Context, w *jonson.HttpResponseWriter) {
+		w.Write([]byte("UP"))
+	})
 
 	// start the server
-	server := jonson.NewServer(rpc, httpMethod)
+	server := jonson.NewServer(rpc, httpMethod, rgxp)
 
 	// create a new graceful shutdown provider
 	graceful := jonson.NewGracefulProvider().WithDefaultHttpServer(server, ":8080").WithTimeout(time.Second * 5).WithLogger(logger)

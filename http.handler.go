@@ -169,7 +169,11 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler any) 
 		func() {
 			// catch any errors thrown by handler
 			defer func() {
-				recoverErr := getRecoverError(recover())
+				e := recover()
+				if e == nil {
+					return
+				}
+				recoverErr := getRecoverError(e)
 
 				// fwd information to the outside world
 				if _, ok := recoverErr.(*Error); !ok {
