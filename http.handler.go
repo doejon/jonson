@@ -429,8 +429,14 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		})
 	}
 
-	// in case no data is preset, we return a NoContent response by default
-	httpStatus := http.StatusNoContent
+	// Whether or not to return StatusNoContent here is a difficult discussion.
+	// https://www.rfc-editor.org/rfc/rfc2616#section-10.2.5 describes that the
+	// client should not change its document view ("If the client is a user agent, it SHOULD NOT change its document view
+	// from that which caused the request to be sent.").
+	// This is for most operations not valid. Most operations do need
+	// the frontend to update its view after e.g. data deletion or adding new data.
+	// Returning StatusNoContent would be hard to guess by only looking upon a missing return value.
+	httpStatus := http.StatusOK
 	var dataToMarshal any
 	successResp, ok := resp.(*RpcResultResponse)
 	if ok {
