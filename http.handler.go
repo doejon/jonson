@@ -429,17 +429,20 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		})
 	}
 
+	// in case no data is preset, we return a NoContent response by default
+	httpStatus := http.StatusNoContent
+	var dataToMarshal any
 	successResp, ok := resp.(*RpcResultResponse)
-	httpStatus := http.StatusOK
-	var dataToMarshal = resp
 	if ok {
+		// got data, switch to OK
+		httpStatus = http.StatusOK
 		dataToMarshal = successResp.Result
 	}
 
 	errorResp, ok := resp.(*RpcErrorResponse)
 	if ok {
-		dataToMarshal = errorResp.Error
 		httpStatus = HttpStatusCode(errorResp.Error)
+		dataToMarshal = errorResp.Error
 	}
 
 	// single response for these calls allowed only
