@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -403,7 +404,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		return false
 	}
 
-	pl := json.RawMessage{}
+	var pl json.RawMessage
 	var resp any
 	var err error
 
@@ -411,14 +412,18 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	// parameters are expected; Otherwise the body
 	// can/will be empty
 	if endpoint.paramsPos >= 0 {
-		err = h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl)
+		pl, err = h.unmarshalParams(req)
 	}
 
 	method := RpcHttpMethod(req.Method)
 
 	if err != nil {
 		h.methodHandler.getLogger(nil).Warn("http method handler: read error", "error", err)
-		resp = NewRpcErrorResponse(nil, ErrParse)
+		if rpcErr, ok := err.(*Error); ok {
+			resp = NewRpcErrorResponse(nil, rpcErr)
+		} else {
+			resp = NewRpcErrorResponse(nil, ErrParse)
+		}
 	} else {
 		resp = h.methodHandler.processRpcMessage(RpcSourceHttp, method, req, w, nil, &RpcRequest{
 			Version: "2.0",
@@ -461,4 +466,87 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	w.WriteHeader(httpStatus)
 	w.Write(b)
 	return true
+}
+
+func (h *HttpMethodHandler) unmarshalParams(req *http.Request) (json.RawMessage, error) {
+	mediaType, _, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err == nil && mediaType == "application/x-www-form-urlencoded" {
+		if err := req.ParseForm(); err != nil {
+			return nil, err
+		}
+		if len(req.URL.Query()) > 0 && len(req.PostForm) > 0 {
+			return nil, ErrInvalidParams.CloneWithData(&ErrorData{
+				Details: []*Error{
+					{
+						Code:    ErrInvalidParams.Code,
+						Message: "provide params either in body or query, not both",
+					},
+				},
+			})
+		}
+		return h.coerceAndMarshalValues(req.Form)
+	}
+
+	if req.Body == nil {
+		if len(req.URL.Query()) > 0 {
+			return h.coerceAndMarshalValues(req.URL.Query())
+		}
+		return nil, io.EOF
+	}
+
+	var pl json.RawMessage
+	if err := h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl); err != nil {
+		if errors.Is(err, io.EOF) && len(req.URL.Query()) > 0 {
+			return h.coerceAndMarshalValues(req.URL.Query())
+		}
+		return nil, err
+	}
+	if len(req.URL.Query()) > 0 {
+		return nil, ErrInvalidParams.CloneWithData(&ErrorData{
+			Details: []*Error{
+				{
+					Code:    ErrInvalidParams.Code,
+					Message: "provide params either in body or query, not both",
+				},
+			},
+		})
+	}
+	return pl, nil
+}
+
+func (h *HttpMethodHandler) coerceAndMarshalValues(values map[string][]string) (json.RawMessage, error) {
+	// We convert form/query payloads into json first so params follow the same
+	// downstream unmarshal/validation flow as json request bodies.
+
+	// Form/query fields are strings by default; without coercion we'd emit
+	// {"count":"42","enabled":"true"} and typed decode into int/bool fails.
+	payload := map[string]any{}
+	for key, fieldValues := range values {
+		switch len(fieldValues) {
+		case 0:
+			continue
+		case 1:
+			payload[key] = coerceFormValue(fieldValues[0])
+		default:
+			list := make([]any, 0, len(fieldValues))
+			for _, value := range fieldValues {
+				list = append(list, coerceFormValue(value))
+			}
+			payload[key] = list
+		}
+	}
+
+	b, err := h.methodHandler.opts.JsonHandler.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func coerceFormValue(v string) any {
+	var out any
+	if err := json.Unmarshal([]byte(v), &out); err == nil {
+		return out
+	}
+	return v
 }
