@@ -64,6 +64,85 @@ func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.Htt
 	}, nil
 }
 
+type SubmitPreferencesV1Params struct {
+	jonson.Params
+	Name      string   `json:"name"`
+	Age       int      `json:"age"`
+	Marketing bool     `json:"marketing"`
+	Tags      []string `json:"tags"`
+}
+
+func (p *SubmitPreferencesV1Params) JonsonValidate(v *jonson.Validator) {
+	if p.Name == "" {
+		v.Path("name").Message("name is required")
+	}
+	if p.Age < 0 {
+		v.Path("age").Message("age must be zero or greater")
+	}
+}
+
+type SubmitPreferencesV1Result struct {
+	Summary string   `json:"summary"`
+	Name    string   `json:"name"`
+	Age     int      `json:"age"`
+	Tags    []string `json:"tags"`
+}
+
+func (a *Account) SubmitPreferencesV1(ctx *jonson.Context, params *SubmitPreferencesV1Params) (*SubmitPreferencesV1Result, error) {
+	jonson.RequireLogger(ctx).Info("calling SubmitPreferencesV1")
+
+	summary := "marketing disabled"
+	if params.Marketing {
+		summary = "marketing enabled"
+	}
+
+	return &SubmitPreferencesV1Result{
+		Summary: summary,
+		Name:    params.Name,
+		Age:     params.Age,
+		Tags:    params.Tags,
+	}, nil
+}
+
+type QueryPreviewV1Params struct {
+	jonson.Params
+	Count   int      `json:"count"`
+	Enabled bool     `json:"enabled"`
+	Tags    []string `json:"tags"`
+}
+
+func (p *QueryPreviewV1Params) JonsonValidate(v *jonson.Validator) {
+	if p.Count <= 0 {
+		v.Path("count").Message("count must be greater than 0")
+	}
+	if len(p.Tags) == 0 {
+		v.Path("tags").Message("at least one tag is required")
+	}
+}
+
+type QueryPreviewV1Result struct {
+	Count   int      `json:"count"`
+	Enabled bool     `json:"enabled"`
+	Tags    []string `json:"tags"`
+	Summary string   `json:"summary"`
+}
+
+func (a *Account) QueryPreviewV1(ctx *jonson.Context, caller *Public, _ jonson.HttpPost, params *QueryPreviewV1Params) (*QueryPreviewV1Result, error) {
+	jonson.RequireLogger(ctx).Info("calling QueryPreviewV1")
+
+	summary := "disabled"
+	if params.Enabled {
+		summary = "enabled"
+	}
+
+	return &QueryPreviewV1Result{
+		Count:   params.Count,
+		Enabled: params.Enabled,
+		Tags:    params.Tags,
+		Summary: summary,
+	}, nil
+}
+
 func (a *Account) ProcessV1(ctx *jonson.Context, caller *Public, _ jonson.HttpGet) error {
 	jonson.RequireLogger(ctx).Info("calling ProcessV1")
 
