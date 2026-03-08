@@ -68,6 +68,13 @@ type HttpRegexpHandler struct {
 	factory       *Factory
 	methodHandler *MethodHandler
 	patterns      map[*regexp.Regexp]func(http.ResponseWriter, *http.Request, []string)
+	opts          *HttpRegexpHandlerOpts
+}
+
+type HttpRegexpHandlerOpts struct {
+	// Limits max bytes to be read.
+	// In case MaxBytes is set to bytes <= 0, MaxBytes will be ignored
+	MaxBytes int64
 }
 
 func NewHttpRegexpHandler(factory *Factory, methodHandler *MethodHandler) *HttpRegexpHandler {
@@ -75,15 +82,25 @@ func NewHttpRegexpHandler(factory *Factory, methodHandler *MethodHandler) *HttpR
 		factory:       factory,
 		methodHandler: methodHandler,
 		patterns:      map[*regexp.Regexp]func(http.ResponseWriter, *http.Request, []string){},
+		opts: &HttpRegexpHandlerOpts{
+			MaxBytes: 5e6,
+		},
 	}
+}
+
+func (h *HttpRegexpHandler) WithOpts(opts *HttpRegexpHandlerOpts) *HttpRegexpHandler {
+	h.opts = opts
+	return h
 }
 
 // Handle will handle an incoming http request
 func (h *HttpRegexpHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	// check for prefix calls
-	for p, h := range h.patterns {
+	for p, hndl := range h.patterns {
 		if parts := p.FindStringSubmatch(req.URL.Path); len(parts) > 0 {
-			h(w, req, parts)
+			// limit max bytes
+			applyMaxBytesReader(w, req, h.opts.MaxBytes)
+			hndl(w, req, parts)
 			return true
 		}
 	}
@@ -314,13 +331,28 @@ func (h *HttpRegexpHandler) checkParams(rt reflect.Type) error {
 type HttpRpcHandler struct {
 	path          string
 	methodHandler *MethodHandler
+	opts          *HttpRpcHandlerOpts
+}
+
+type HttpRpcHandlerOpts struct {
+	// Limits max bytes to be read.
+	// In case MaxBytes is set to bytes <= 0, MaxBytes will be ignored
+	MaxBytes int64
 }
 
 func NewHttpRpcHandler(methodHandler *MethodHandler, path string) *HttpRpcHandler {
 	return &HttpRpcHandler{
 		path:          path,
 		methodHandler: methodHandler,
+		opts: &HttpRpcHandlerOpts{
+			MaxBytes: 5e6,
+		},
 	}
+}
+
+func (h *HttpRpcHandler) WithOpts(opts *HttpRpcHandlerOpts) *HttpRpcHandler {
+	h.opts = opts
+	return h
 }
 
 // Handle will handle an incoming http request
@@ -342,10 +374,13 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 		batch bool
 	)
 
+	// limit max bytes
+	applyMaxBytesReader(w, req, int64(h.opts.MaxBytes))
+
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		h.methodHandler.getLogger(nil).Warn("rpc http handler: read error", "error", err)
-		resp = []any{NewRpcErrorResponse(nil, ErrParse)}
+		resp = []any{NewRpcErrorResponse(nil, ErrParse.Coalesce(err))}
 	} else {
 		resp, batch = h.methodHandler.processRpcMessages(RpcSourceHttpRpc, RpcHttpMethodPost, req, w, nil, body)
 	}
@@ -380,12 +415,28 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 // otherwise GET will be used as the accepting http method.
 type HttpMethodHandler struct {
 	methodHandler *MethodHandler
+	opts          *HttpMethodHandlerOpts
+}
+
+type HttpMethodHandlerOpts struct {
+	// Limits max bytes to be read.
+	// In case MaxBytes is set to bytes <= 0, MaxBytes will be ignored
+	MaxBytes int64
 }
 
 func NewHttpMethodHandler(methodHandler *MethodHandler) *HttpMethodHandler {
 	return &HttpMethodHandler{
 		methodHandler: methodHandler,
+		opts: &HttpMethodHandlerOpts{
+			MaxBytes: 5e6,
+		},
 	}
+}
+
+// WithOpts sets method handler opts
+func (h *HttpMethodHandler) WithOpts(opts *HttpMethodHandlerOpts) *HttpMethodHandler {
+	h.opts = opts
+	return h
 }
 
 // Handle handles the incoming http request and parses the payload.
@@ -411,6 +462,8 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	// parameters are expected; Otherwise the body
 	// can/will be empty
 	if endpoint.paramsPos >= 0 {
+		// limit size
+		applyMaxBytesReader(w, req, h.opts.MaxBytes)
 		err = h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl)
 	}
 
@@ -418,7 +471,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 
 	if err != nil {
 		h.methodHandler.getLogger(nil).Warn("http method handler: read error", "error", err)
-		resp = NewRpcErrorResponse(nil, ErrParse)
+		resp = NewRpcErrorResponse(nil, ErrParse.Coalesce(err))
 	} else {
 		resp = h.methodHandler.processRpcMessage(RpcSourceHttp, method, req, w, nil, &RpcRequest{
 			Version: "2.0",
@@ -462,3 +515,47 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	w.Write(b)
 	return true
 }
+
+// applyMaxBytesReader applies a applyMaxBytesReader to http.Request.
+// In case applyMaxBytesReader reaches its limit, the incoming request will be aborted.
+// For maxBytes <= 0, applyMaxBytesReader will be ignored
+func applyMaxBytesReader(w http.ResponseWriter, r *http.Request, maxBytes int64) {
+	if maxBytes <= 0 {
+		return
+	}
+
+	r.Body = MaxBytesReader(w, r.Body, maxBytes)
+}
+
+// MaxBytesReader wraps the http.MaxBytesReader into a byte reader translating
+// any read error returned caused by hitting the MaxBytes limit into an error
+// which will result in a proper rpc error response
+func MaxBytesReader(w http.ResponseWriter, rdr io.ReadCloser, maxBytes int64) *maxBytesReader {
+	return &maxBytesReader{
+		maxBytes: maxBytes,
+		rdr:      http.MaxBytesReader(w, rdr, maxBytes),
+	}
+}
+
+type maxBytesReader struct {
+	maxBytes int64
+	rdr      io.ReadCloser
+}
+
+func (m *maxBytesReader) Read(b []byte) (int, error) {
+	n, err := m.rdr.Read(b)
+	if err == nil {
+		return n, err
+	}
+	if _, ok := err.(*http.MaxBytesError); ok {
+		// map internal code to code to externalize
+		err = ErrRequestTooLarge
+	}
+	return n, err
+}
+
+func (m *maxBytesReader) Close() error {
+	return m.rdr.Close()
+}
+
+var _ io.ReadCloser = &maxBytesReader{}

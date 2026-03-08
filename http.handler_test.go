@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -398,8 +399,12 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 	secret := NewDebugSecret()
 	methodHandler := NewMethodHandler(factory, secret, nil)
 	methodHandler.RegisterSystem(testSystem)
-	httpHandler := NewHttpMethodHandler(methodHandler)
-	regexpHandler := NewHttpRegexpHandler(factory, methodHandler)
+	httpHandler := NewHttpMethodHandler(methodHandler).WithOpts(&HttpMethodHandlerOpts{
+		MaxBytes: 1e3,
+	})
+	regexpHandler := NewHttpRegexpHandler(factory, methodHandler).WithOpts(&HttpRegexpHandlerOpts{
+		MaxBytes: 1e3,
+	})
 
 	regexpHandler.RegisterRegexp(regexp.MustCompile("/sys/get.v1"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest, parts *HttpRegexpMatchedParts) {
 		RequirePrivate(ctx)
@@ -425,6 +430,13 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 		b, _ := json.Marshal(meta)
 		w.Write(b)
 	}).WithRpcMethod("some/other-method.v1")
+
+	regexpHandler.RegisterRegexp(regexp.MustCompile("/read-all"), func(ctx *Context, w *HttpResponseWriter, r *HttpRequest) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			panic(err)
+		}
+	}).WithRpcMethod("some/read-all.v1")
 
 	server := NewServer(httpHandler, regexpHandler)
 
@@ -540,4 +552,47 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 			t.Fatalf("expected returned body to equal rpc meta, got: %s", string(content))
 		}
 	})
+
+	t.Run("request body too large, call will be aborted for httpMethodHandler", func(t *testing.T) {
+		tac.isAuthorized = true
+
+		wtr := httptest.NewRecorder()
+		bdy := []string{}
+		for range 10 {
+			bdy = append(bdy, strings.Repeat("a", 10000))
+		}
+		bts, _ := json.Marshal(bdy)
+		req, _ := http.NewRequest("POST", "http://localhost:8080/test-system/get-profile.v1", bytes.NewReader(bts))
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected http status code 413, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		tl, _ := json.Marshal(ErrRequestTooLarge)
+		if string(content) != string(tl) {
+			t.Fatalf("expected returned body to equal ErrRequestTooLarge, got: %s", string(content))
+		}
+	})
+
+	t.Run("rpc read all fails with too large request body", func(t *testing.T) {
+		tac.isAuthorized = true
+
+		bdy := []string{}
+		for range 10 {
+			bdy = append(bdy, strings.Repeat("a", 10000))
+		}
+		bts, _ := json.Marshal(bdy)
+
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/read-all", bytes.NewReader(bts))
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected http status code 413, got: %d", wtr.Code)
+		}
+
+	})
+
 }

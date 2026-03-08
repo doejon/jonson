@@ -17,6 +17,7 @@ var (
 	ErrUnauthorized           = &Error{Code: -32001, Message: "Not authorized"}
 	ErrUnauthenticated        = &Error{Code: -32002, Message: "Not authenticated"}
 	ErrTooManyRequests        = &Error{Code: -32003, Message: "Too many requests"}
+	ErrRequestTooLarge        = &Error{Code: -32004, Message: "Request too large"}
 )
 
 func HttpStatusCode(r *Error) int {
@@ -35,6 +36,8 @@ func HttpStatusCode(r *Error) int {
 		return http.StatusNotFound
 	case ErrTooManyRequests.Code:
 		return http.StatusTooManyRequests
+	case ErrRequestTooLarge.Code:
+		return http.StatusRequestEntityTooLarge
 	default:
 		return http.StatusInternalServerError
 	}

@@ -97,7 +97,7 @@ type MethodHandler struct {
 	// methodName func(system string, method string, version uint64) string
 
 	systems      map[reflect.Type]any
-	endpoints    map[string]apiEndpoint
+	endpoints    map[string]*apiEndpoint
 	errorEncoder Secret
 	opts         *MethodHandlerOptions
 }
@@ -160,7 +160,7 @@ func NewMethodHandler(
 	return &MethodHandler{
 		factory:      factory,
 		systems:      map[reflect.Type]any{},
-		endpoints:    map[string]apiEndpoint{},
+		endpoints:    map[string]*apiEndpoint{},
 		errorEncoder: errorEncoder,
 		opts:         opts,
 	}
@@ -341,7 +341,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		panic(errors.New("method handler: " + endpoint + " must return error interface as last argument"))
 	}
 
-	m.endpoints[endpoint] = apiEndpoint{
+	m.endpoints[endpoint] = &apiEndpoint{
 		def:           def,
 		handlerFunc:   rv,
 		methodContext: def.methodContext,
@@ -412,9 +412,7 @@ func (m *MethodHandler) processRpcMessages(
 		return
 	}
 
-	var (
-		rpcRequests []json.RawMessage
-	)
+	var rpcRequests []json.RawMessage
 
 	dec := m.opts.JsonHandler.NewDecoder(bytes.NewReader(data))
 

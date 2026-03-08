@@ -37,6 +37,18 @@ func (e *Error) Inspect() *ErrorInspector {
 	return NewErrorInspector(e)
 }
 
+// Coalesce finds the first valid error of type *Error
+// In case none is found, e itself will be returned
+func (e *Error) Coalesce(errs ...error) *Error {
+	for _, v := range errs {
+		x, ok := v.(*Error)
+		if ok {
+			return x
+		}
+	}
+	return e
+}
+
 // indents a block of text with an indent string
 func indent(text, indent string) string {
 	if text[len(text)-1:] == "\n" {
