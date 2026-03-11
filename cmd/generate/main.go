@@ -315,7 +315,7 @@ func writeTypesFile(fset *token.FileSet, pkgName string, listTypes []*ast.Object
 			wtr,
 			`
 // %s:%d -- %s -- %s
-var Type%s = reflect.TypeOf((*%s)(nil)).Elem()
+var Type%s = reflect.TypeFor[*%s]()
 
 func Require%s(ctx *jonson.Context) %s {
 	if v := ctx.Require(Type%s).(%s); v != nil {

@@ -9,7 +9,7 @@ import (
 
 
 // provider.authorization.go:6 -- Private -- struct
-var TypePrivate = reflect.TypeOf((**Private)(nil)).Elem()
+var TypePrivate = reflect.TypeFor[**Private]()
 
 func RequirePrivate(ctx *jonson.Context) *Private {
 	if v := ctx.Require(TypePrivate).(*Private); v != nil {
@@ -19,7 +19,7 @@ func RequirePrivate(ctx *jonson.Context) *Private {
 }
 
 // provider.authorization.go:14 -- Public -- struct
-var TypePublic = reflect.TypeOf((**Public)(nil)).Elem()
+var TypePublic = reflect.TypeFor[**Public]()
 
 func RequirePublic(ctx *jonson.Context) *Public {
 	if v := ctx.Require(TypePublic).(*Public); v != nil {
