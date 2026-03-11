@@ -69,7 +69,7 @@ func (a *Account) ProcessV1(ctx *jonson.Context, caller *Public, _ jonson.HttpGe
 
 	graceful := jonson.RequireGraceful(ctx)
 	for graceful.IsUp() {
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			log.Printf("sleeping %d", i+1)
 			time.Sleep(time.Second * 1)
 		}

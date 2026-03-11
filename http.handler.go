@@ -17,7 +17,7 @@ func init() {
 
 var respMethodNotAllowed []byte
 
-var TypeHttpRequest = reflect.TypeOf((**HttpRequest)(nil)).Elem()
+var TypeHttpRequest = reflect.TypeFor[*HttpRequest]()
 
 type HttpRequest struct {
 	Shareable
@@ -42,7 +42,7 @@ type HttpResponseWriter struct {
 	http.ResponseWriter
 }
 
-var TypeHttpResponseWriter = reflect.TypeOf((**HttpResponseWriter)(nil)).Elem()
+var TypeHttpResponseWriter = reflect.TypeFor[*HttpResponseWriter]()
 
 // RequireHttpResponseWriter returns the current http response writer
 // which is used to handle the ongoing request's response.
@@ -59,7 +59,7 @@ type HttpRegexpMatchedParts struct {
 	Parts []string
 }
 
-var TypeHttpRegexpMatchedParts = reflect.TypeOf((**HttpRegexpMatchedParts)(nil)).Elem()
+var TypeHttpRegexpMatchedParts = reflect.TypeFor[*HttpRegexpMatchedParts]()
 
 // The HttpRegexpHandler will accept regular expressions and
 // will register those as default http endpoints. Those methods cannot
@@ -311,7 +311,7 @@ func (h *HttpRegexpHandler) checkParams(rt reflect.Type) error {
 			return fmt.Errorf("http regexp handler: tried to require type twice: %s", rti.String())
 		}
 
-		if !isTypeSupported(providerTypes, rti) {
+		if !providerTypes.Contains(rti) {
 			return fmt.Errorf("http regexp handler: type not supported: %s", rti.String())
 		}
 

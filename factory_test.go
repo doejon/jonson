@@ -49,7 +49,7 @@ func (p *TestPrivate) AccountUuid() string {
 	return testAccountUuid
 }
 
-var TypeTestPrivate = reflect.TypeOf((**TestPrivate)(nil)).Elem()
+var TypeTestPrivate = reflect.TypeFor[*TestPrivate]()
 
 // RequireHttpResponseWriter returns the current http response writer
 // which is used to handle the ongoing request's response.
@@ -70,7 +70,7 @@ func (t *TestProvider) NewTestPrivate(ctx *Context) *TestPrivate {
 type TestPublic struct {
 }
 
-var TypeTestPublic = reflect.TypeOf((**TestPublic)(nil)).Elem()
+var TypeTestPublic = reflect.TypeFor[*TestPublic]()
 
 // RequireHttpResponseWriter returns the current http response writer
 // which is used to handle the ongoing request's response.
@@ -92,7 +92,7 @@ func TestFactory(t *testing.T) {
 
 	t.Run("test registering provider func", func(t *testing.T) {
 		tm := time.Now()
-		var TypeTime = reflect.TypeOf((**time.Time)(nil)).Elem()
+		var TypeTime = reflect.TypeFor[*time.Time]()
 		provideTime := func(ctx *Context) *time.Time {
 			return &tm
 		}

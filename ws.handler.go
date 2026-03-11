@@ -11,7 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var TypeWSClient = reflect.TypeOf((**WSClient)(nil)).Elem()
+var TypeWSClient = reflect.TypeFor[*WSClient]()
 
 func RequireWSClient(ctx *Context) *WSClient {
 	if v := ctx.Require(TypeWSClient); v != nil {

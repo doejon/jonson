@@ -201,7 +201,7 @@ func (m *MethodHandler) RegisterSystem(sys any, routeDebugger ...func(s string))
 	rt := reflect.TypeOf(sys)
 	m.systems[rt] = sys
 
-	if rt.Kind() != reflect.Ptr {
+	if rt.Kind() != reflect.Pointer {
 		panic(errors.New("registerSystem: expected ptr to struct"))
 	}
 
@@ -211,8 +211,8 @@ func (m *MethodHandler) RegisterSystem(sys any, routeDebugger ...func(s string))
 	}
 	systemName := ToKebabCase(rte.Name())
 
-	for i := 0; i < rt.NumMethod(); i++ {
-		rtm := rt.Method(i)
+	for rtm := range rt.Methods() {
+		rtm := rtm
 
 		if methodName, version := SplitGoMethodName(rtm.Name); version > 0 {
 			// we have found a valid method signature, build definition and try to register
@@ -262,8 +262,8 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		seenTypes           = map[reflect.Type]struct{}{}
 		typeParams          reflect.Type
 		argPosParams        = -1
-		paramsSafeguardType = reflect.TypeOf((*paramsSafeguard)(nil)).Elem()
-		validatedParamsType = reflect.TypeOf((*ValidatedParams)(nil)).Elem()
+		paramsSafeguardType = reflect.TypeFor[paramsSafeguard]()
+		validatedParamsType = reflect.TypeFor[ValidatedParams]()
 		providerTypes       = m.factory.Types()
 	)
 
@@ -286,7 +286,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		}
 
 		// check if we have a provider
-		if isTypeSupported(providerTypes, rti) {
+		if providerTypes.Contains(rti) {
 			seenTypes[rti] = struct{}{}
 			continue
 		}
@@ -298,7 +298,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 			}
 
 			// do we have a ptr to a struct?
-			if rti.Kind() != reflect.Ptr || rti.Elem().Kind() != reflect.Struct {
+			if rti.Kind() != reflect.Pointer || rti.Elem().Kind() != reflect.Struct {
 				panic(errors.New("method handler:" + endpoint + " has non ptr-to-struct param instance of " + rti.String()))
 			}
 
@@ -680,13 +680,4 @@ func getRecoverError(e any) error {
 		return errors.New(s)
 	}
 	return fmt.Errorf("%v", e)
-}
-
-func isTypeSupported(list []reflect.Type, rt reflect.Type) bool {
-	for i := range list {
-		if list[i] == rt {
-			return true
-		}
-	}
-	return false
 }

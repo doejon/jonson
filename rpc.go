@@ -212,7 +212,7 @@ type RpcMeta struct {
 	Source     RpcSource
 }
 
-var TypeRpcMeta = reflect.TypeOf((**RpcMeta)(nil)).Elem()
+var TypeRpcMeta = reflect.TypeFor[*RpcMeta]()
 
 func RequireRpcMeta(ctx *Context) *RpcMeta {
 	if v := ctx.Require(TypeRpcMeta); v != nil {

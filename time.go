@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var TypeTime = reflect.TypeOf((*Time)(nil)).Elem()
+var TypeTime = reflect.TypeFor[Time]()
 
 // RequireHttpResponseWriter returns the current http response writer
 // which is used to handle the ongoing request's response.

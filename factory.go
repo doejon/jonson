@@ -3,6 +3,7 @@ package jonson
 import (
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -104,7 +105,7 @@ func (f *Factory) RegisterProviderFunc(fn any) {
 		panic("factory: expect registered function to have exactly 1 return value")
 	}
 	rtfno := rtfn.Out(0)
-	if rtfno.Kind() != reflect.Interface && (rtfno.Kind() != reflect.Ptr || rtfno.Elem().Kind() != reflect.Struct) {
+	if rtfno.Kind() != reflect.Interface && (rtfno.Kind() != reflect.Pointer || rtfno.Elem().Kind() != reflect.Struct) {
 		panic("factory: expect return type to be an interface or ptr to struct")
 	}
 
@@ -140,13 +141,13 @@ func (f *Factory) RegisterProvider(provider any) {
 	// step 1 - check if we have a ptr to a struct
 	rv := reflect.ValueOf(provider)
 	rt := reflect.TypeOf(provider)
-	if rt.Kind() != reflect.Ptr || rt.Elem().Kind() != reflect.Struct {
+	if rt.Kind() != reflect.Pointer || rt.Elem().Kind() != reflect.Struct {
 		panic("factory: must pass ptr to struct")
 	}
 
 	// step 2 - scan methods
-	for i := 0; i < rt.NumMethod(); i++ {
-		rtm := rt.Method(i)
+	for rtm := range rt.Methods() {
+		rtm := rtm
 
 		// only map methods that start with New
 		if !strings.HasPrefix(rtm.Name, "New") {
@@ -169,7 +170,7 @@ func (f *Factory) RegisterProvider(provider any) {
 			panic("factory: expect " + rtm.Name + " to have exactly 1 return value")
 		}
 		if rtm.Type.Out(0).Kind() != reflect.Interface &&
-			(rtm.Type.Out(0).Kind() != reflect.Ptr || rtm.Type.Out(0).Elem().Kind() != reflect.Struct) {
+			(rtm.Type.Out(0).Kind() != reflect.Pointer || rtm.Type.Out(0).Elem().Kind() != reflect.Struct) {
 			panic("factory: expect " + rtm.Name + " to have an interface or ptr to struct as first return value")
 		}
 
@@ -185,7 +186,14 @@ func (f *Factory) RegisterProvider(provider any) {
 	}
 }
 
-func (f *Factory) Types() []reflect.Type {
+// ProviderTypes allows us to group multiple provider types with some convenience functions
+type ProviderTypes []reflect.Type
+
+func (p ProviderTypes) Contains(tp reflect.Type) bool {
+	return slices.Contains(p, tp)
+}
+
+func (f *Factory) Types() ProviderTypes {
 	res := make([]reflect.Type, 0, len(f.providers))
 	for rt := range f.providers {
 		res = append(res, rt)

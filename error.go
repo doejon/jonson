@@ -52,17 +52,17 @@ func (e *Error) Coalesce(errs ...error) *Error {
 // indents a block of text with an indent string
 func indent(text, indent string) string {
 	if text[len(text)-1:] == "\n" {
-		result := ""
-		for _, j := range strings.Split(text[:len(text)-1], "\n") {
-			result += indent + j + "\n"
+		var result strings.Builder
+		for j := range strings.SplitSeq(text[:len(text)-1], "\n") {
+			result.WriteString(indent + j + "\n")
 		}
-		return result
+		return result.String()
 	}
-	result := ""
-	for _, j := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
-		result += indent + j + "\n"
+	var result strings.Builder
+	for j := range strings.SplitSeq(strings.TrimRight(text, "\n"), "\n") {
+		result.WriteString(indent + j + "\n")
 	}
-	return result[:len(result)-1]
+	return result.String()[:len(result.String())-1]
 }
 
 // ErrorData object

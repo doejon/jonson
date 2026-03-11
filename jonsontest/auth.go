@@ -51,7 +51,7 @@ type Account struct {
 	jonson.ShareableAcrossImpersonation
 }
 
-var typeTestAccount = reflect.TypeOf((**Account)(nil)).Elem()
+var typeTestAccount = reflect.TypeFor[*Account]()
 
 func (a *Account) Provide(ctx *jonson.Context) {
 	ctx.StoreValue(typeTestAccount, a)
