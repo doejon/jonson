@@ -485,14 +485,7 @@ func (h *HttpMethodHandler) unmarshalParams(req *http.Request) (json.RawMessage,
 				},
 			})
 		}
-		return h.coerceAndMarshalValues(req.Form)
-	}
-
-	if req.Body == nil {
-		if len(urlQuery) > 0 {
-			return h.coerceAndMarshalValues(urlQuery)
-		}
-		return nil, io.EOF
+		return h.coerceAndMarshalValues(req.PostForm)
 	}
 
 	var pl json.RawMessage
