@@ -470,11 +470,12 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 
 func (h *HttpMethodHandler) unmarshalParams(req *http.Request) (json.RawMessage, error) {
 	mediaType, _, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	urlQuery := req.URL.Query()
 	if err == nil && mediaType == "application/x-www-form-urlencoded" {
 		if err := req.ParseForm(); err != nil {
 			return nil, err
 		}
-		if len(req.URL.Query()) > 0 && len(req.PostForm) > 0 {
+		if len(urlQuery) > 0 && len(req.PostForm) > 0 {
 			return nil, ErrInvalidParams.CloneWithData(&ErrorData{
 				Details: []*Error{
 					{
@@ -488,20 +489,20 @@ func (h *HttpMethodHandler) unmarshalParams(req *http.Request) (json.RawMessage,
 	}
 
 	if req.Body == nil {
-		if len(req.URL.Query()) > 0 {
-			return h.coerceAndMarshalValues(req.URL.Query())
+		if len(urlQuery) > 0 {
+			return h.coerceAndMarshalValues(urlQuery)
 		}
 		return nil, io.EOF
 	}
 
 	var pl json.RawMessage
 	if err := h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl); err != nil {
-		if errors.Is(err, io.EOF) && len(req.URL.Query()) > 0 {
-			return h.coerceAndMarshalValues(req.URL.Query())
+		if errors.Is(err, io.EOF) && len(urlQuery) > 0 {
+			return h.coerceAndMarshalValues(urlQuery)
 		}
 		return nil, err
 	}
-	if len(req.URL.Query()) > 0 {
+	if len(urlQuery) > 0 {
 		return nil, ErrInvalidParams.CloneWithData(&ErrorData{
 			Details: []*Error{
 				{
@@ -526,11 +527,11 @@ func (h *HttpMethodHandler) coerceAndMarshalValues(values map[string][]string) (
 		case 0:
 			continue
 		case 1:
-			payload[key] = coerceFormValue(fieldValues[0])
+			payload[key] = h.coerceFormValue(fieldValues[0])
 		default:
 			list := make([]any, 0, len(fieldValues))
 			for _, value := range fieldValues {
-				list = append(list, coerceFormValue(value))
+				list = append(list, h.coerceFormValue(value))
 			}
 			payload[key] = list
 		}
@@ -543,7 +544,7 @@ func (h *HttpMethodHandler) coerceAndMarshalValues(values map[string][]string) (
 	return b, nil
 }
 
-func coerceFormValue(v string) any {
+func (h *HttpMethodHandler) coerceFormValue(v string) any {
 	var out any
 	if err := json.Unmarshal([]byte(v), &out); err == nil {
 		return out
