@@ -109,24 +109,30 @@ func (t *TestSystem) GetProfileV1(ctx *Context, private *TestPrivate, _ HttpPost
 
 type SubmitFlagsV1Params struct {
 	Params
-	Count   int      `json:"count"`
-	Enabled bool     `json:"enabled"`
-	Tags    []string `json:"tags"`
+	Count     int      `json:"count"`
+	Enabled   bool     `json:"enabled"`
+	Tags      []string `json:"tags"`
+	Label     string   `json:"label"`
+	Reference uint64   `json:"reference"`
 }
 
 func (s *SubmitFlagsV1Params) JonsonValidate(v *Validator) {
 	if s.Count <= 0 {
 		v.Path("count").Message("count needs to be greater than 0")
 	}
-	if len(s.Tags) < 2 {
-		v.Path("tags").Message("expected at least two tags")
+	if len(s.Tags) == 0 {
+		v.Path("tags").Message("expected at least one tag")
 	}
 }
+
+func (s *SubmitFlagsV1Params) JonsonAllowUnknownFields() {}
 
 type SubmitFlagsV1Result struct {
 	Count      int
 	Enabled    bool
 	Tags       []string
+	Label      string
+	Reference  uint64
 	HttpMethod RpcHttpMethod
 }
 
@@ -135,6 +141,8 @@ func (t *TestSystem) SubmitFlagsV1(ctx *Context, private *TestPrivate, _ HttpPos
 		Count:      params.Count,
 		Enabled:    params.Enabled,
 		Tags:       params.Tags,
+		Label:      params.Label,
+		Reference:  params.Reference,
 		HttpMethod: RequireRpcMeta(ctx).HttpMethod,
 	}, nil
 }

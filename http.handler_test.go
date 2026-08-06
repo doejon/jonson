@@ -292,8 +292,10 @@ func TestHttpHandler(t *testing.T) {
 		form := url.Values{}
 		form.Set("count", "42")
 		form.Set("enabled", "true")
-		form.Add("tags", "alpha")
-		form.Add("tags", "beta")
+		form.Set("tags", "123")
+		form.Set("label", "true")
+		form.Set("reference", "9007199254740993")
+		form.Set("unknown", "ignored")
 
 		req, _ := http.NewRequest("POST", "/test-system/submit-flags.v1", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -310,8 +312,14 @@ func TestHttpHandler(t *testing.T) {
 		if !result.Enabled {
 			t.Fatal("expected enabled to equal true")
 		}
-		if len(result.Tags) != 2 || result.Tags[0] != "alpha" || result.Tags[1] != "beta" {
-			t.Fatalf("expected tags to equal [alpha beta], got: %#v", result.Tags)
+		if len(result.Tags) != 1 || result.Tags[0] != "123" {
+			t.Fatalf("expected tags to equal [123], got: %#v", result.Tags)
+		}
+		if result.Label != "true" {
+			t.Fatalf("expected label to remain the string true, got: %q", result.Label)
+		}
+		if result.Reference != 9007199254740993 {
+			t.Fatalf("expected reference to preserve its value, got: %d", result.Reference)
 		}
 		if result.HttpMethod != RpcHttpMethodPost {
 			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
@@ -376,24 +384,41 @@ func TestHttpHandler(t *testing.T) {
 	})
 
 	t.Run("calls method get-profile.v1 with query params", func(t *testing.T) {
-		wtr := httptest.NewRecorder()
-		testProvider.setLoggedIn(true)
-
-		query := url.Values{}
-		query.Set("uuid", testAccountUuid)
-		req, _ := http.NewRequest("POST", "/test-system/get-profile.v1?"+query.Encode(), nil)
-
-		httpHandler.Handle(wtr, req)
-		result := &GetProfileV1Result{}
-		_, err := parseHttpResponse(wtr, result)
-		if err != nil {
-			t.Fatal(err)
+		tests := []struct {
+			name        string
+			contentType string
+		}{
+			{name: "without content type"},
+			{name: "with form content type", contentType: "application/x-www-form-urlencoded"},
 		}
-		if result.Name != "Silvio" {
-			t.Fatalf("expected returned profile name to equal Silvio, got: %s", result.Name)
-		}
-		if result.HttpMethod != RpcHttpMethodPost {
-			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				wtr := httptest.NewRecorder()
+				testProvider.setLoggedIn(true)
+
+				query := url.Values{}
+				query.Set("uuid", testAccountUuid)
+				req, _ := http.NewRequest("POST", "/test-system/get-profile.v1?"+query.Encode(), nil)
+				if test.contentType != "" {
+					req.Header.Set("Content-Type", test.contentType)
+				}
+
+				httpHandler.Handle(wtr, req)
+				result := &GetProfileV1Result{}
+				rpcErr, err := parseHttpResponse(wtr, result)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if rpcErr != nil {
+					t.Fatalf("expected no rpc error, got: %v", rpcErr)
+				}
+				if result.Name != "Silvio" {
+					t.Fatalf("expected returned profile name to equal Silvio, got: %s", result.Name)
+				}
+				if result.HttpMethod != RpcHttpMethodPost {
+					t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+				}
+			})
 		}
 	})
 
@@ -431,6 +456,9 @@ func TestHttpHandler(t *testing.T) {
 		query.Set("enabled", "true")
 		query.Add("tags", "alpha")
 		query.Add("tags", "beta")
+		query.Set("label", "true")
+		query.Set("reference", "9007199254740993")
+		query.Set("unknown", "ignored")
 
 		req, _ := http.NewRequest("POST", "/test-system/submit-flags.v1?"+query.Encode(), nil)
 
@@ -448,6 +476,12 @@ func TestHttpHandler(t *testing.T) {
 		}
 		if len(result.Tags) != 2 || result.Tags[0] != "alpha" || result.Tags[1] != "beta" {
 			t.Fatalf("expected tags to equal [alpha beta], got: %#v", result.Tags)
+		}
+		if result.Label != "true" {
+			t.Fatalf("expected label to remain the string true, got: %q", result.Label)
+		}
+		if result.Reference != 9007199254740993 {
+			t.Fatalf("expected reference to preserve its value, got: %d", result.Reference)
 		}
 		if result.HttpMethod != RpcHttpMethodPost {
 			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
@@ -820,6 +854,31 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 		content, _ := io.ReadAll(wtr.Body)
 		tl, _ := json.Marshal(ErrRequestTooLarge)
 		if string(content) != string(tl) {
+			t.Fatalf("expected returned body to equal ErrRequestTooLarge, got: %s", string(content))
+		}
+	})
+
+	t.Run("form body too large, call will be aborted for httpMethodHandler", func(t *testing.T) {
+		tac.isAuthorized = true
+
+		form := url.Values{}
+		form.Set("uuid", strings.Repeat("a", 10000))
+		req, _ := http.NewRequest(
+			"POST",
+			"http://localhost:8080/test-system/get-profile.v1",
+			strings.NewReader(form.Encode()),
+		)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		wtr := httptest.NewRecorder()
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected http status code 413, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		expected, _ := json.Marshal(ErrRequestTooLarge)
+		if string(content) != string(expected) {
 			t.Fatalf("expected returned body to equal ErrRequestTooLarge, got: %s", string(content))
 		}
 	})
