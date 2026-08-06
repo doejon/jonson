@@ -54,7 +54,7 @@ type Private struct {
 	accountUuid string
 }
 
-var TypePrivate = reflect.TypeOf((**Private)(nil)).Elem()
+var TypePrivate = reflect.TypeFor[*Private]()
 
 func RequirePrivate(ctx *Context) *Private {
 	if v := ctx.Require(TypePrivate); v != nil {
@@ -85,7 +85,7 @@ type Public struct {
 	Shareable
 }
 
-var TypePublic = reflect.TypeOf((**Public)(nil)).Elem()
+var TypePublic = reflect.TypeFor[*Public]()
 
 // RequirePublic returns a public caller
 func RequirePublic(ctx *Context) *Public {

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-var TypeSecret = reflect.TypeOf((*Secret)(nil)).Elem()
+var TypeSecret = reflect.TypeFor[Secret]()
 
 func RequireSecret(ctx *Context) Secret {
 	if v := ctx.Require(TypeSecret); v != nil {

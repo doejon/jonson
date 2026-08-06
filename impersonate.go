@@ -25,7 +25,7 @@ type Impersonator struct {
 	ctx *Context
 }
 
-var TypeImpersonator = reflect.TypeOf((**Impersonator)(nil)).Elem()
+var TypeImpersonator = reflect.TypeFor[*Impersonator]()
 
 // RequireImpersonator returns the impersonator
 func RequireImpersonator(ctx *Context) *Impersonator {
@@ -51,7 +51,7 @@ type Impersonated struct {
 	accountUuids []string
 }
 
-var TypeImpersonated = reflect.TypeOf((**Impersonated)(nil)).Elem()
+var TypeImpersonated = reflect.TypeFor[*Impersonated]()
 
 // RequireImpersonated returns the current impersonated setting;
 // In case no impersonation has been set, RequireImpersonated will panic

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var TypeContext = reflect.TypeOf((**Context)(nil)).Elem()
+var TypeContext = reflect.TypeFor[*Context]()
 
 type Context struct {
 	parent        context.Context
@@ -136,7 +136,7 @@ func (c *Context) Require(inst reflect.Type) any {
 	if c.finalized {
 		panic(errors.New("context is already finalized"))
 	}
-	if (inst.Kind() != reflect.Ptr || inst.Elem().Kind() != reflect.Struct) && inst.Kind() != reflect.Interface {
+	if (inst.Kind() != reflect.Pointer || inst.Elem().Kind() != reflect.Struct) && inst.Kind() != reflect.Interface {
 		panic(errors.New("inst must either be a ptr or an interface"))
 	}
 

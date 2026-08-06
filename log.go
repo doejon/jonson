@@ -98,9 +98,9 @@ func (l *loggerProvider) NewLoggerOptions(ctx *Context) *LoggerOptions {
 	return l.options
 }
 
-var TypeLogger = reflect.TypeOf((**slog.Logger)(nil)).Elem()
+var TypeLogger = reflect.TypeFor[*slog.Logger]()
 
-var TypeLoggerOptions = reflect.TypeOf((**LoggerOptions)(nil)).Elem()
+var TypeLoggerOptions = reflect.TypeFor[*LoggerOptions]()
 
 // RequireLogger allows you to require the logger provided
 // during initialization.

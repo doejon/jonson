@@ -20,7 +20,7 @@ func (l *jsonHandlerProvider) NewJsonHandler(ctx *Context) JsonHandler {
 	return l.jsonHandler
 }
 
-var TypeJsonHandler = reflect.TypeOf((*JsonHandler)(nil)).Elem()
+var TypeJsonHandler = reflect.TypeFor[JsonHandler]()
 
 // RequireLogger allows you to require the logger provided
 // during initialization.

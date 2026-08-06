@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -31,15 +32,6 @@ func init() {
 	flag.StringVar(&fpath, "path", fpath, "filepath to scan")
 	flag.StringVar(&jonsonPath, "jonson", jonsonPath, "path to jonson library")
 	flag.Parse()
-}
-
-func inList(s string, list []string) bool {
-	for _, cmp := range list {
-		if s == cmp {
-			return true
-		}
-	}
-	return false
 }
 
 // file storing internal api calls
@@ -315,7 +307,7 @@ func writeTypesFile(fset *token.FileSet, pkgName string, listTypes []*ast.Object
 			wtr,
 			`
 // %s:%d -- %s -- %s
-var Type%s = reflect.TypeOf((*%s)(nil)).Elem()
+var Type%s = reflect.TypeFor[*%s]()
 
 func Require%s(ctx *jonson.Context) %s {
 	if v := ctx.Require(Type%s).(%s); v != nil {
@@ -384,7 +376,7 @@ func main() {
 				structs = append(structs, object)
 			}
 			// search types
-			if object.Kind == ast.Typ && ast.IsExported(name) && inList(name, whitelistTypes) {
+			if object.Kind == ast.Typ && ast.IsExported(name) && slices.Contains(whitelistTypes, name) {
 				listTypes = append(listTypes, object)
 				continue
 			}

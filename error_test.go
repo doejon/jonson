@@ -1,6 +1,9 @@
 package jonson
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestError(t *testing.T) {
 	testError := &Error{
@@ -191,4 +194,40 @@ func TestError(t *testing.T) {
 			v.validate(t, inspector)
 		})
 	}
+}
+
+func TestErrorCoalesce(t *testing.T) {
+	fallback := &Error{Code: 99, Message: "fallback"}
+	first := &Error{Code: 1, Message: "first"}
+	second := &Error{Code: 2, Message: "second"}
+
+	t.Run("returns the first *Error from the list", func(t *testing.T) {
+		got := fallback.Coalesce(first, second)
+		if got != first {
+			t.Fatalf("expected first error (code 1), got code %d", got.Code)
+		}
+	})
+
+	t.Run("skips plain errors and returns the first *Error", func(t *testing.T) {
+		plainErr := fmt.Errorf("plain error")
+		got := fallback.Coalesce(plainErr, second)
+		if got != second {
+			t.Fatalf("expected second error (code 2), got code %d", got.Code)
+		}
+	})
+
+	t.Run("returns self when list is empty", func(t *testing.T) {
+		got := fallback.Coalesce()
+		if got != fallback {
+			t.Fatalf("expected fallback error (code 99), got code %d", got.Code)
+		}
+	})
+
+	t.Run("returns self when no *Error is present in the list", func(t *testing.T) {
+		plainErr := fmt.Errorf("plain error")
+		got := fallback.Coalesce(plainErr)
+		if got != fallback {
+			t.Fatalf("expected fallback error (code 99), got code %d", got.Code)
+		}
+	})
 }

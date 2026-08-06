@@ -35,7 +35,7 @@ func TestAEADSecret(t *testing.T) {
 
 	result := map[string]struct{}{}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		text := "Silvio"
 
 		encoded := enc.Encode(text)

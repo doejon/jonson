@@ -37,20 +37,32 @@ func (e *Error) Inspect() *ErrorInspector {
 	return NewErrorInspector(e)
 }
 
+// Coalesce finds the first valid error of type *Error
+// In case none is found, e itself will be returned
+func (e *Error) Coalesce(errs ...error) *Error {
+	for _, v := range errs {
+		x, ok := v.(*Error)
+		if ok {
+			return x
+		}
+	}
+	return e
+}
+
 // indents a block of text with an indent string
 func indent(text, indent string) string {
 	if text[len(text)-1:] == "\n" {
-		result := ""
-		for _, j := range strings.Split(text[:len(text)-1], "\n") {
-			result += indent + j + "\n"
+		var result strings.Builder
+		for j := range strings.SplitSeq(text[:len(text)-1], "\n") {
+			result.WriteString(indent + j + "\n")
 		}
-		return result
+		return result.String()
 	}
-	result := ""
-	for _, j := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
-		result += indent + j + "\n"
+	var result strings.Builder
+	for j := range strings.SplitSeq(strings.TrimRight(text, "\n"), "\n") {
+		result.WriteString(indent + j + "\n")
 	}
-	return result[:len(result)-1]
+	return result.String()[:len(result.String())-1]
 }
 
 // ErrorData object

@@ -38,7 +38,7 @@ type graceful struct {
 	ShareableAcrossImpersonation
 }
 
-var TypeGraceful = reflect.TypeOf((*Graceful)(nil)).Elem()
+var TypeGraceful = reflect.TypeFor[Graceful]()
 
 // RequireGraceful requires the current instance of graceful and
 // allows us to check for server shutdown attempts

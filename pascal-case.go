@@ -12,9 +12,9 @@ func ToPascalCase(input string) string {
 	kebabCase := ToKebabCase(input)
 	words := strings.Split(kebabCase, "-")
 
-	pascal := ""
+	var pascal strings.Builder
 	for _, word := range words {
-		pascal += strings.ToUpper(word[0:1]) + word[1:]
+		pascal.WriteString(strings.ToUpper(word[0:1]) + word[1:])
 	}
-	return pascal
+	return pascal.String()
 }

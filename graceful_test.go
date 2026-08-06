@@ -29,7 +29,7 @@ func TestGraceful(t *testing.T) {
 	}
 
 	callProcessEndpoint := func(port string) {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			clnt := &http.Client{}
 			req, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/process", port), nil)
 			res, err := clnt.Do(req)

@@ -53,7 +53,7 @@ func (n *NilSliceNormalizer) normalizeRecursive(val reflect.Value, visited map[u
 	}
 
 	// First, handle pointers to traverse to the actual data.
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			return
 		}
