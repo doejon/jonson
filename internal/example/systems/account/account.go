@@ -1,7 +1,6 @@
 package account
 
 import (
-	"log"
 	"time"
 
 	"github.com/doejon/jonson"
@@ -148,10 +147,14 @@ func (a *Account) ProcessV1(ctx *jonson.Context, caller *Public, _ jonson.HttpGe
 
 	graceful := jonson.RequireGraceful(ctx)
 	for graceful.IsUp() {
-		for i := range 5 {
-			log.Printf("sleeping %d", i+1)
-			time.Sleep(time.Second * 1)
+		select {
+		case <-ctx.Done():
+			jonson.RequireLogger(ctx).Info("exiting account/process.v1 - client disconnected")
+			return nil
+		case <-time.After(time.Second * 3):
+			// check if isUp finished
 		}
+
 	}
 	jonson.RequireLogger(ctx).Info("exiting account/process.v1, server shutting down")
 	return nil
