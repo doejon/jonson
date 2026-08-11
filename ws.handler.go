@@ -2,6 +2,7 @@ package jonson
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"reflect"
@@ -29,12 +30,16 @@ type WebsocketHandler struct {
 }
 
 type WebsocketOptions struct {
-	Upgrader       *websocket.Upgrader
-	MaxMessageSize int64
-	PingPeriod     time.Duration
-	PongWait       time.Duration
-	WriteWait      time.Duration
+	Upgrader              *websocket.Upgrader
+	MaxMessageSize        int64
+	PingPeriod            time.Duration
+	PongWait              time.Duration
+	WriteWait             time.Duration
+	MaxConcurrentMessages uint64
 }
+
+// DefaultMaxConcurrentMessages defines the max amount of concurrent messages per connection being processed in case not otherwise defined (== 0).
+const DefaultMaxConcurrentMessages = 64
 
 func NewWebsocketOptions() *WebsocketOptions {
 	return &WebsocketOptions{
@@ -42,10 +47,11 @@ func NewWebsocketOptions() *WebsocketOptions {
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
-		WriteWait:      10 * time.Second,
-		PongWait:       60 * time.Second,
-		PingPeriod:     (60 * time.Second * 9) / 10,
-		MaxMessageSize: 1 << 22,
+		WriteWait:             10 * time.Second,
+		PongWait:              60 * time.Second,
+		PingPeriod:            (60 * time.Second * 9) / 10,
+		MaxMessageSize:        1 << 22,
+		MaxConcurrentMessages: DefaultMaxConcurrentMessages,
 	}
 }
 
@@ -54,6 +60,10 @@ func NewWebsocketHandler(
 	path string,
 	options *WebsocketOptions,
 ) *WebsocketHandler {
+
+	if options.MaxConcurrentMessages == 0 {
+		options.MaxConcurrentMessages = DefaultMaxConcurrentMessages
+	}
 
 	return &WebsocketHandler{
 		path:          path,
@@ -87,6 +97,9 @@ type WSClient struct {
 	conn          *websocket.Conn
 	httpRequest   *http.Request
 	send          chan []byte
+	// done is closed once writer() returns upon a closed connection.
+	// This allows sending goroutine to ublock and exit.
+	done chan struct{}
 }
 
 func NewWSClient(ws *WebsocketHandler, methodHandler *MethodHandler, conn *websocket.Conn, r *http.Request) *WSClient {
@@ -96,6 +109,7 @@ func NewWSClient(ws *WebsocketHandler, methodHandler *MethodHandler, conn *webso
 		conn:          conn,
 		httpRequest:   r,
 		send:          make(chan []byte, 512),
+		done:          make(chan struct{}),
 	}
 }
 
@@ -105,6 +119,14 @@ func (w *WSClient) run() {
 	w.writer()
 }
 
+// make sure to abort sending in case the websocket has been closed
+
+func (w *WSClient) sendMessage(b []byte) {
+	select {
+	case w.send <- b:
+	case <-w.done:
+	}
+}
 func (w *WSClient) reader() {
 	defer func() {
 		w.conn.Close()
@@ -117,6 +139,12 @@ func (w *WSClient) reader() {
 		return nil
 	})
 
+	// make sure to not spawn too many goroutines in parallel, otherwise we might run into memory issues.
+	// This is a semaphore channel that will limit the number of concurrent messages being processed.
+	limiter := make(chan struct{}, int(w.ws.options.MaxConcurrentMessages))
+
+	// make sure to abort sending in case the websocket has been closed
+
 	for {
 		messageType, p, err := w.conn.ReadMessage()
 		if err != nil {
@@ -128,6 +156,24 @@ func (w *WSClient) reader() {
 
 		if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
 			go func() {
+				select {
+				case limiter <- struct{}{}:
+				case <-w.done:
+					// writer already shut down; stop spawning new work
+					return
+				default:
+					// limit reached, abort
+					errResp := NewRpcErrorResponse(nil, ErrTooManyRequests.CloneWithData(&ErrorData{
+						Debug: fmt.Sprintf("max of %d parallel requests allowed per websocket connection", w.ws.options.MaxConcurrentMessages),
+					}))
+					// batch response
+					b, _ := w.methodHandler.opts.JsonHandler.Marshal(errResp)
+					w.sendMessage(b)
+					return
+				}
+				// release limit
+				defer func() { <-limiter }()
+
 				// The initial call to processRpcMessages remains the same.
 				resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, RpcHttpMethodPost, w.httpRequest, nil, w, p)
 
@@ -146,7 +192,8 @@ func (w *WSClient) reader() {
 					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp)
 				}
 
-				w.send <- b
+				// make sure to abort sending in case the websocket has been closed
+				w.sendMessage(b)
 			}()
 		}
 	}
@@ -157,6 +204,8 @@ func (w *WSClient) writer() {
 	defer func() {
 		ticker.Stop()
 		w.conn.Close()
+		// unblock all goroutines (created by reader and sendNotification)
+		close(w.done)
 	}()
 
 	for {
@@ -199,21 +248,26 @@ func (w *WSClient) SendNotification(msg *RpcNotification) (err error) {
 	}()
 
 	raw, _ := w.methodHandler.opts.JsonHandler.Marshal(msg)
-	w.send <- raw
+	w.sendMessage(raw)
 	return
 }
 
 // IPAddress returns the request's ip address
+// Note: we do look into X-Forwarded-For-Headers for trusted environments.
+// For cases where the X-Forwarded-For-Header is malformed or otherwise
+// not available, we fall back to RemoteAddr
 func IPAddress(r *http.Request) string {
 	//gets comma-space separated forwarding list (client, proxy1, proxy2, ...)
 	//Note: the X-FORWARDED-FOR header can be set by the client so this assumes we are using a trusted proxy that
 	//strips this header from client requests
-	ipsStr := r.Header.Get("X-FORWARDED-FOR")
-	ips := strings.SplitN(ipsStr, ", ", 1)
+	ipsStr := r.Header.Get("X-Forwarded-For")
 
-	//return first client if present
-	if len(ips) > 0 {
-		return ips[0]
+	if ipsStr != "" {
+		//return first client if present
+		ip := strings.TrimSpace(strings.Split(ipsStr, ",")[0])
+		if ip != "" {
+			return ip
+		}
 	}
 
 	//fallback to remote address
