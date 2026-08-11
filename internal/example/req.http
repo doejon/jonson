@@ -43,3 +43,13 @@ Authorization: authorized
     	"uuid": "70634da0-7459-4a17-a50f-7afc2a600d50"
 	}
 }
+
+### Submit preferences using form-urlencoded params
+POST http://localhost:8080/account/submit-preferences.v1
+content-type: application/x-www-form-urlencoded
+
+name=Silvio&age=34&marketing=true&tags=dev&tags=go
+
+### Query params on POST endpoint (coerced like JSON/form payloads)
+POST http://localhost:8080/account/query-preview.v1?count=42&enabled=true&tags=dev&tags=go
+content-type: application/json

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -230,6 +231,287 @@ func TestHttpHandler(t *testing.T) {
 		}
 		if result.HttpMethod != RpcHttpMethodPost {
 			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+		}
+	})
+
+	t.Run("calls method get-profile.v1 with form-urlencoded payload", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		form := url.Values{}
+		form.Set("uuid", testAccountUuid)
+
+		req, _ := http.NewRequest("POST", "/test-system/get-profile.v1", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		httpHandler.Handle(wtr, req)
+		result := &GetProfileV1Result{}
+		_, err := parseHttpResponse(wtr, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Name != "Silvio" {
+			t.Fatalf("expected returned profile name to equal Silvio, got: %s", result.Name)
+		}
+		if result.HttpMethod != RpcHttpMethodPost {
+			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+		}
+	})
+
+	t.Run("form-urlencoded payload follows same validation flow", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		form := url.Values{}
+		form.Set("uuid", testAccountUuid)
+		form.Set("unknown", "1")
+
+		req, _ := http.NewRequest("POST", "/test-system/get-profile.v1", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		httpHandler.Handle(wtr, req)
+		rpcErr, err := parseHttpResponse(wtr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rpcErr == nil {
+			t.Fatal("expected validation error due to unknown field")
+		}
+		if rpcErr.Code != ErrInvalidParams.Code {
+			t.Fatalf("expected invalid params code, got: %d", rpcErr.Code)
+		}
+		if wtr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status bad request, got: %d", wtr.Code)
+		}
+	})
+
+	t.Run("form-urlencoded payload coerces scalars and repeated keys", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		form := url.Values{}
+		form.Set("count", "42")
+		form.Set("enabled", "true")
+		form.Set("tags", "123")
+		form.Set("label", "true")
+		form.Set("reference", "9007199254740993")
+		form.Set("unknown", "ignored")
+
+		req, _ := http.NewRequest("POST", "/test-system/submit-flags.v1", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		httpHandler.Handle(wtr, req)
+		result := &SubmitFlagsV1Result{}
+		_, err := parseHttpResponse(wtr, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Count != 42 {
+			t.Fatalf("expected count to equal 42, got: %d", result.Count)
+		}
+		if !result.Enabled {
+			t.Fatal("expected enabled to equal true")
+		}
+		if len(result.Tags) != 1 || result.Tags[0] != "123" {
+			t.Fatalf("expected tags to equal [123], got: %#v", result.Tags)
+		}
+		if result.Label != "true" {
+			t.Fatalf("expected label to remain the string true, got: %q", result.Label)
+		}
+		if result.Reference != 9007199254740993 {
+			t.Fatalf("expected reference to preserve its value, got: %d", result.Reference)
+		}
+		if result.HttpMethod != RpcHttpMethodPost {
+			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+		}
+	})
+
+	t.Run("form-urlencoded payload with invalid scalar type fails like json params", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		form := url.Values{}
+		form.Set("count", "abc")
+		form.Set("enabled", "true")
+		form.Add("tags", "alpha")
+		form.Add("tags", "beta")
+
+		req, _ := http.NewRequest("POST", "/test-system/submit-flags.v1", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		httpHandler.Handle(wtr, req)
+		rpcErr, err := parseHttpResponse(wtr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rpcErr == nil {
+			t.Fatal("expected invalid params error")
+		}
+		if rpcErr.Code != ErrInvalidParams.Code {
+			t.Fatalf("expected invalid params code, got: %d", rpcErr.Code)
+		}
+		if wtr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status bad request, got: %d", wtr.Code)
+		}
+	})
+
+	t.Run("form body and query params together returns invalid params", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		form := url.Values{}
+		form.Set("uuid", testAccountUuid)
+		query := url.Values{}
+		query.Set("trace", "1")
+
+		req, _ := http.NewRequest("POST", "/test-system/get-profile.v1?"+query.Encode(), strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		httpHandler.Handle(wtr, req)
+		rpcErr, err := parseHttpResponse(wtr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rpcErr == nil {
+			t.Fatal("expected invalid params error")
+		}
+		if rpcErr.Code != ErrInvalidParams.Code {
+			t.Fatalf("expected invalid params code, got: %d", rpcErr.Code)
+		}
+		if wtr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status bad request, got: %d", wtr.Code)
+		}
+	})
+
+	t.Run("calls method get-profile.v1 with query params", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			contentType string
+		}{
+			{name: "without content type"},
+			{name: "with form content type", contentType: "application/x-www-form-urlencoded"},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				wtr := httptest.NewRecorder()
+				testProvider.setLoggedIn(true)
+
+				query := url.Values{}
+				query.Set("uuid", testAccountUuid)
+				req, _ := http.NewRequest("POST", "/test-system/get-profile.v1?"+query.Encode(), nil)
+				if test.contentType != "" {
+					req.Header.Set("Content-Type", test.contentType)
+				}
+
+				httpHandler.Handle(wtr, req)
+				result := &GetProfileV1Result{}
+				rpcErr, err := parseHttpResponse(wtr, result)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if rpcErr != nil {
+					t.Fatalf("expected no rpc error, got: %v", rpcErr)
+				}
+				if result.Name != "Silvio" {
+					t.Fatalf("expected returned profile name to equal Silvio, got: %s", result.Name)
+				}
+				if result.HttpMethod != RpcHttpMethodPost {
+					t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+				}
+			})
+		}
+	})
+
+	t.Run("query params follow same validation flow", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		query := url.Values{}
+		query.Set("uuid", testAccountUuid)
+		query.Set("unknown", "1")
+		req, _ := http.NewRequest("POST", "/test-system/get-profile.v1?"+query.Encode(), nil)
+
+		httpHandler.Handle(wtr, req)
+		rpcErr, err := parseHttpResponse(wtr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rpcErr == nil {
+			t.Fatal("expected validation error due to unknown field")
+		}
+		if rpcErr.Code != ErrInvalidParams.Code {
+			t.Fatalf("expected invalid params code, got: %d", rpcErr.Code)
+		}
+		if wtr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status bad request, got: %d", wtr.Code)
+		}
+	})
+
+	t.Run("query params coerce scalars and repeated keys", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		query := url.Values{}
+		query.Set("count", "42")
+		query.Set("enabled", "true")
+		query.Add("tags", "alpha")
+		query.Add("tags", "beta")
+		query.Set("label", "true")
+		query.Set("reference", "9007199254740993")
+		query.Set("unknown", "ignored")
+
+		req, _ := http.NewRequest("POST", "/test-system/submit-flags.v1?"+query.Encode(), nil)
+
+		httpHandler.Handle(wtr, req)
+		result := &SubmitFlagsV1Result{}
+		_, err := parseHttpResponse(wtr, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Count != 42 {
+			t.Fatalf("expected count to equal 42, got: %d", result.Count)
+		}
+		if !result.Enabled {
+			t.Fatal("expected enabled to equal true")
+		}
+		if len(result.Tags) != 2 || result.Tags[0] != "alpha" || result.Tags[1] != "beta" {
+			t.Fatalf("expected tags to equal [alpha beta], got: %#v", result.Tags)
+		}
+		if result.Label != "true" {
+			t.Fatalf("expected label to remain the string true, got: %q", result.Label)
+		}
+		if result.Reference != 9007199254740993 {
+			t.Fatalf("expected reference to preserve its value, got: %d", result.Reference)
+		}
+		if result.HttpMethod != RpcHttpMethodPost {
+			t.Fatalf("expected http method to equal post, got: %s", result.HttpMethod)
+		}
+	})
+
+	t.Run("json body and query params together returns invalid params", func(t *testing.T) {
+		wtr := httptest.NewRecorder()
+		testProvider.setLoggedIn(true)
+
+		params, _ := json.Marshal(GetProfileV1Params{
+			Uuid: testAccountUuid,
+		})
+		query := url.Values{}
+		query.Set("uuid", "not-used")
+		req, _ := http.NewRequest("POST", "/test-system/get-profile.v1?"+query.Encode(), bytes.NewReader(params))
+
+		httpHandler.Handle(wtr, req)
+		rpcErr, err := parseHttpResponse(wtr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rpcErr == nil {
+			t.Fatal("expected invalid params error")
+		}
+		if rpcErr.Code != ErrInvalidParams.Code {
+			t.Fatalf("expected invalid params code, got: %d", rpcErr.Code)
+		}
+		if wtr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status bad request, got: %d", wtr.Code)
 		}
 	})
 
@@ -572,6 +854,31 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 		content, _ := io.ReadAll(wtr.Body)
 		tl, _ := json.Marshal(ErrRequestTooLarge)
 		if string(content) != string(tl) {
+			t.Fatalf("expected returned body to equal ErrRequestTooLarge, got: %s", string(content))
+		}
+	})
+
+	t.Run("form body too large, call will be aborted for httpMethodHandler", func(t *testing.T) {
+		tac.isAuthorized = true
+
+		form := url.Values{}
+		form.Set("uuid", strings.Repeat("a", 10000))
+		req, _ := http.NewRequest(
+			"POST",
+			"http://localhost:8080/test-system/get-profile.v1",
+			strings.NewReader(form.Encode()),
+		)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		wtr := httptest.NewRecorder()
+
+		server.ServeHTTP(wtr, req)
+		if wtr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected http status code 413, got: %d", wtr.Code)
+		}
+
+		content, _ := io.ReadAll(wtr.Body)
+		expected, _ := json.Marshal(ErrRequestTooLarge)
+		if string(content) != string(expected) {
 			t.Fatalf("expected returned body to equal ErrRequestTooLarge, got: %s", string(content))
 		}
 	})

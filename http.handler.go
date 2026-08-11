@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"reflect"
 	"regexp"
 	"runtime/debug"
@@ -416,6 +418,7 @@ func (h *HttpRpcHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 type HttpMethodHandler struct {
 	methodHandler *MethodHandler
 	opts          *HttpMethodHandlerOpts
+	formDecoder   *formValuesDecoder
 }
 
 type HttpMethodHandlerOpts struct {
@@ -427,6 +430,7 @@ type HttpMethodHandlerOpts struct {
 func NewHttpMethodHandler(methodHandler *MethodHandler) *HttpMethodHandler {
 	return &HttpMethodHandler{
 		methodHandler: methodHandler,
+		formDecoder:   newFormValuesDecoder(),
 		opts: &HttpMethodHandlerOpts{
 			MaxBytes: 5e6,
 		},
@@ -454,7 +458,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		return false
 	}
 
-	pl := json.RawMessage{}
+	var pl json.RawMessage
 	var resp any
 	var err error
 
@@ -463,8 +467,10 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	// can/will be empty
 	if endpoint.paramsPos >= 0 {
 		// limit size
-		applyMaxBytesReader(w, req, h.opts.MaxBytes)
-		err = h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl)
+		if req.Body != nil {
+			applyMaxBytesReader(w, req, h.opts.MaxBytes)
+		}
+		pl, err = h.unmarshalParams(req, endpoint)
 	}
 
 	method := RpcHttpMethod(req.Method)
@@ -514,6 +520,82 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	w.WriteHeader(httpStatus)
 	w.Write(b)
 	return true
+}
+
+func (h *HttpMethodHandler) unmarshalParams(req *http.Request, endpoint *apiEndpoint) (json.RawMessage, error) {
+	mediaType, _, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	urlQuery := req.URL.Query()
+	if err == nil && mediaType == "application/x-www-form-urlencoded" {
+		// ParseForm also merges URL query values into req.Form. Use PostForm
+		// instead so body and query remain distinct parameter sources.
+		if req.Body != nil {
+			if err := req.ParseForm(); err != nil {
+				return nil, err
+			}
+		}
+		if len(urlQuery) > 0 && len(req.PostForm) > 0 {
+			return nil, multipleParamSourcesError()
+		}
+
+		// Prefer the form body when present. An empty form body can still be a
+		// query-only request, including requests that carry a form content type.
+		if len(req.PostForm) > 0 {
+			return h.marshalFormValues(req.PostForm, endpoint)
+		}
+		return h.marshalFormValues(urlQuery, endpoint)
+	}
+
+	// NOTE: body is usually always non-nil for servers.
+	// However, if for any case a test is being raised against
+	// the implementation (using http.NewRequest(.., .., nil)),
+	// the body might be empty.
+	if req.Body == nil {
+		if len(urlQuery) > 0 {
+			return h.marshalFormValues(urlQuery, endpoint)
+		}
+		return nil, nil
+	}
+
+	var pl json.RawMessage
+	if err := h.methodHandler.opts.JsonHandler.NewDecoder(req.Body).Decode(&pl); err != nil {
+		// A body and query are mutually exclusive. Only fall back to the query
+		// when the body is genuinely empty.
+		if errors.Is(err, io.EOF) && len(urlQuery) > 0 {
+			return h.marshalFormValues(urlQuery, endpoint)
+		}
+		return nil, err
+	}
+	if len(urlQuery) > 0 {
+		return nil, multipleParamSourcesError()
+	}
+	return pl, nil
+}
+
+func multipleParamSourcesError() *Error {
+	return ErrInvalidParams.CloneWithData(&ErrorData{
+		Details: []*Error{
+			{
+				Code:    ErrInvalidParams.Code,
+				Message: "provide params either in body or query, not both",
+			},
+		},
+	})
+}
+
+func (h *HttpMethodHandler) marshalFormValues(values url.Values, endpoint *apiEndpoint) (json.RawMessage, error) {
+	if len(values) == 0 {
+		return h.methodHandler.opts.JsonHandler.Marshal(map[string]any{})
+	}
+
+	// Decode against the endpoint schema first, then marshal back to JSON so
+	// every transport continues through the same RpcRequest validation path.
+	params := reflect.New(endpoint.paramsType).Interface()
+	if err := h.formDecoder.Decode(values, params); err != nil {
+		return nil, ErrInvalidParams.CloneWithData(&ErrorData{
+			Debug: h.methodHandler.errorEncoder.Encode(err.Error()),
+		})
+	}
+	return h.methodHandler.opts.JsonHandler.Marshal(params)
 }
 
 // applyMaxBytesReader applies a applyMaxBytesReader to http.Request.
