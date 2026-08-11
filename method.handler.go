@@ -130,7 +130,11 @@ type MethodHandlerOptions struct {
 	// log; This allows you to e.g. hide parameters
 	RpcRequestLogInfoInterceptor func(info *RpcRequestLogInfo) *RpcRequestLogInfo
 	JsonHandler                  JsonHandler
+	MaxBatchSize                 uint64
 }
+
+// DefaultMaxBatchSize defines the default maxBatchSize for sizes == 0
+const DefaultMaxBatchSize = uint64(100)
 
 func NewMethodHandler(
 	factory *Factory,
@@ -140,6 +144,10 @@ func NewMethodHandler(
 	if opts == nil {
 		opts = &MethodHandlerOptions{}
 	}
+	if opts.MaxBatchSize == 0 {
+		opts.MaxBatchSize = DefaultMaxBatchSize
+	}
+
 	if _, ok := validMissingValidationLevel[opts.MissingValidationLevel]; !ok {
 		opts.MissingValidationLevel = MissingValidationLevelInfo
 	}
@@ -430,6 +438,17 @@ func (m *MethodHandler) processRpcMessages(
 		if len(rpcRequests) == 0 {
 			m.getLogger(nil).Warn("method handler: empty request array received")
 			resp = []any{NewRpcErrorResponse(nil, ErrParse)}
+			return
+		}
+
+		// fail on batches exceeding the configured maximum size to prevent
+		// a single request amplifying into an unbounded number of backend calls
+		if len(rpcRequests) > int(m.opts.MaxBatchSize) {
+			m.getLogger(nil).Warn("method handler: batch size exceeds batch limit",
+				"size", len(rpcRequests), "max", m.opts.MaxBatchSize)
+			resp = []any{NewRpcErrorResponse(nil, ErrRequestTooLarge.CloneWithData(&ErrorData{
+				Debug: fmt.Sprintf("batch of %d exceeds max batch size of %d", len(rpcRequests), m.opts.MaxBatchSize),
+			}))}
 			return
 		}
 
