@@ -89,6 +89,7 @@ type SubmitPreferencesV1Result struct {
 	Tags    []string `json:"tags"`
 }
 
+// SubmitPreferencesV1 stores the marketing preferences of an account and returns a summary.
 func (a *Account) SubmitPreferencesV1(ctx *jonson.Context, params *SubmitPreferencesV1Params) (*SubmitPreferencesV1Result, error) {
 	jonson.RequireLogger(ctx).Info("calling SubmitPreferencesV1")
 
@@ -128,6 +129,7 @@ type QueryPreviewV1Result struct {
 	Summary string   `json:"summary"`
 }
 
+// QueryPreviewV1 returns the given count, enabled flag and tags together with a summary.
 func (a *Account) QueryPreviewV1(ctx *jonson.Context, caller *Public, _ jonson.HttpPost, params *QueryPreviewV1Params) (*QueryPreviewV1Result, error) {
 	jonson.RequireLogger(ctx).Info("calling QueryPreviewV1")
 

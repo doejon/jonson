@@ -33,9 +33,9 @@ func main() {
 	rpc := jonson.NewHttpRpcHandler(methods, "/rpc")
 	httpMethod := jonson.NewHttpMethodHandler(methods)
 	// expose selected methods as tools for AI agents (Model Context Protocol)
-	mcp := jonson.NewMcpHandler(methods, "/mcp").
-		Expose(accountSystem.GetProfileV1).
-		Expose(accountSystem.SubmitPreferencesV1, "Stores the marketing preferences of an account and returns a summary.")
+	// expose all POST methods of the account system; their doc comments become the tool descriptions.
+	// use Expose(accountSystem.GetProfileV1) for single methods or ExposeAll() for every registered endpoint.
+	mcp := jonson.NewMcpHandler(methods, "/mcp").ExposeSystem(accountSystem)
 	rgxp := jonson.NewHttpRegexpHandler(providers, methods)
 	rgxp.RegisterRegexp(regexp.MustCompile("/status"), func(ctx *jonson.Context, w *jonson.HttpResponseWriter) {
 		w.Write([]byte("UP"))

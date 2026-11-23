@@ -487,6 +487,11 @@ mcpHandler := jonson.NewMcpHandler(methodHandler, "/mcp").
 server := jonson.NewServer(mcpHandler, rpcHandler, httpHandler)
 ```
 
+To expose many methods at once, `ExposeSystem(account)` exposes all methods of a registered system and
+`ExposeAll()` all endpoints registered so far. Both rely solely on the generated descriptions: they panic
+on a method without doc comment, and skip methods requiring GET as well as tools that are already exposed,
+so `Expose(account.GetProfileV1, "custom description").ExposeSystem(account)` keeps the custom description.
+
 - Tool names replace `/` and `.` with `_`: `account/get-profile.v1` becomes `account_get-profile_v1`.
 - The `inputSchema` of a tool is built from the params struct: `json` tags give the names, fields without
   `omitempty` or `omitzero` are required, and a `description:"..."` tag documents a field for the model.

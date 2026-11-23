@@ -19,6 +19,8 @@ func (*SubmitPreferencesV1Params) JonsonFieldDescriptions() map[string]string {
 
 func (*Account) JonsonMethodDescriptions() map[string]string {
 	return map[string]string{
-		"account/get-profile.v1": "GetProfileV1 returns the name of the account with the given uuid.",
+		"account/get-profile.v1":        "GetProfileV1 returns the name of the account with the given uuid.",
+		"account/submit-preferences.v1": "SubmitPreferencesV1 stores the marketing preferences of an account and returns a summary.",
+		"account/query-preview.v1":      "QueryPreviewV1 returns the given count, enabled flag and tags together with a summary.",
 	}
 }

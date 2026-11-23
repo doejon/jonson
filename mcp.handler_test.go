@@ -397,3 +397,63 @@ func TestMcpInputSchema(t *testing.T) {
 		t.Errorf("schema with AllowUnknownFieldsParams = %s, want no additionalProperties", loose)
 	}
 }
+
+type McpDocSystem struct{}
+
+func (*McpDocSystem) JonsonMethodDescriptions() map[string]string {
+	return map[string]string{
+		"mcp-doc-system/a.v1": "Does a.",
+		"mcp-doc-system/b.v1": "Does b.",
+	}
+}
+
+func (s *McpDocSystem) AV1(ctx *Context) error            { return nil }
+func (s *McpDocSystem) BV1(ctx *Context) error            { return nil }
+func (s *McpDocSystem) CV1(ctx *Context, _ HttpGet) error { return nil }
+
+func mcpToolDescriptions(h *McpHandler) map[string]string {
+	out := map[string]string{}
+	for _, tool := range h.tools {
+		out[tool.Name] = tool.Description
+	}
+	return out
+}
+
+func TestMcpHandler_ExposeSystemAndAll(t *testing.T) {
+	doc := &McpDocSystem{}
+	mh := NewMethodHandler(NewFactory(), NewDebugSecret(), nil)
+	mh.RegisterSystem(doc)
+
+	t.Run("system skips GET and keeps already exposed tools", func(t *testing.T) {
+		h := NewMcpHandler(mh, "/mcp").Expose(doc.AV1, "custom").ExposeSystem(doc)
+		want := map[string]string{"mcp-doc-system_a_v1": "custom", "mcp-doc-system_b_v1": "Does b."}
+		if got := mcpToolDescriptions(h); !reflect.DeepEqual(got, want) {
+			t.Errorf("tools = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("all exposes every documented endpoint in name order", func(t *testing.T) {
+		h := NewMcpHandler(mh, "/mcp").ExposeAll()
+		if len(h.tools) != 2 || h.tools[0].Name != "mcp-doc-system_a_v1" || h.tools[1].Name != "mcp-doc-system_b_v1" {
+			t.Errorf("tools = %v", mcpToolDescriptions(h))
+		}
+	})
+
+	for name, expose := range map[string]func(){
+		"unregistered system": func() { NewMcpHandler(mh, "/mcp").ExposeSystem(&McpTestSystem{}) },
+		"undocumented method": func() {
+			mh := NewMethodHandler(NewFactory(), NewDebugSecret(), nil)
+			mh.RegisterSystem(&McpTestSystem{})
+			NewMcpHandler(mh, "/mcp").ExposeAll()
+		},
+	} {
+		t.Run(name+" panics", func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Error("did not panic")
+				}
+			}()
+			expose()
+		})
+	}
+}

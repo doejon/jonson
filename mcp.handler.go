@@ -2,7 +2,9 @@ package jonson
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -94,6 +96,42 @@ func (h *McpHandler) Expose(fn any, description ...string) *McpHandler {
 		panic("mcp handler: Expose needs a method value such as system.MethodV1")
 	}
 	return h.ExposeMethod(method, description...)
+}
+
+// ExposeSystem exposes all methods of a registered system, such as account for a
+// registered *Account, as tools. Descriptions come from the generated doc comments
+// (see MethodDescriber). Methods requiring GET and methods that are already exposed
+// are skipped. ExposeSystem panics on an unregistered system or a method without description.
+func (h *McpHandler) ExposeSystem(sys any) *McpHandler {
+	rt := reflect.TypeOf(sys)
+	if _, ok := h.methodHandler.systems[rt]; !ok {
+		panic(fmt.Sprintf("mcp handler: system %v is not registered", rt))
+	}
+	return h.exposeWhere(func(e *apiEndpoint) bool {
+		return e.methodContext.IsValid() && e.methodContext.Type() == rt
+	})
+}
+
+// ExposeAll exposes all endpoints registered so far as tools, like ExposeSystem does
+// for a single system. Endpoints registered afterwards are not exposed.
+func (h *McpHandler) ExposeAll() *McpHandler {
+	return h.exposeWhere(func(*apiEndpoint) bool { return true })
+}
+
+// exposeWhere exposes the matching endpoints in name order, skipping GET methods
+// and the ones already exposed.
+func (h *McpHandler) exposeWhere(match func(e *apiEndpoint) bool) *McpHandler {
+	for _, method := range slices.Sorted(maps.Keys(h.methodHandler.endpoints)) {
+		e := h.methodHandler.endpoints[method]
+		if !match(e) || e.httpMethod == RpcHttpMethodGet {
+			continue
+		}
+		if _, exposed := h.toolsByName[McpToolName(method)]; exposed {
+			continue
+		}
+		h.ExposeMethod(method)
+	}
+	return h
 }
 
 // MethodDescriber is implemented by systems whose methods are documented, e.g. by
