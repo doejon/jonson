@@ -90,6 +90,8 @@ type apiEndpoint struct {
 	methodContext reflect.Value
 	paramsPos     int
 	paramsType    reflect.Type
+	// httpMethod is the verb required via HttpGet/HttpPost; empty if none is required
+	httpMethod RpcHttpMethod
 }
 
 type MethodHandler struct {
@@ -270,6 +272,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		seenTypes           = map[reflect.Type]struct{}{}
 		typeParams          reflect.Type
 		argPosParams        = -1
+		httpMethod          RpcHttpMethod
 		paramsSafeguardType = reflect.TypeFor[paramsSafeguard]()
 		validatedParamsType = reflect.TypeFor[ValidatedParams]()
 		providerTypes       = m.factory.Types()
@@ -296,6 +299,12 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		// check if we have a provider
 		if providerTypes.Contains(rti) {
 			seenTypes[rti] = struct{}{}
+			switch rti {
+			case TypeHttpGet:
+				httpMethod = RpcHttpMethodGet
+			case TypeHttpPost:
+				httpMethod = RpcHttpMethodPost
+			}
 			continue
 		}
 
@@ -355,6 +364,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		methodContext: def.methodContext,
 		paramsPos:     argPosParams,
 		paramsType:    typeParams,
+		httpMethod:    httpMethod,
 	}
 }
 

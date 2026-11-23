@@ -81,7 +81,7 @@ func McpToolName(method string) string {
 
 // Expose makes a registered method, such as "account/get-profile.v1", available as a tool.
 // The description tells the model what the tool does and when to use it.
-// Expose panics on an unknown method or an empty description, like RegisterMethod
+// Expose panics on an unknown method, an empty description or a method requiring GET, like RegisterMethod
 // panics on an invalid definition.
 func (h *McpHandler) Expose(method string, description string) *McpHandler {
 	endpoint, ok := h.methodHandler.endpoints[method]
@@ -90,6 +90,9 @@ func (h *McpHandler) Expose(method string, description string) *McpHandler {
 	}
 	if strings.TrimSpace(description) == "" {
 		panic("mcp handler: method " + method + " needs a description")
+	}
+	if endpoint.httpMethod == RpcHttpMethodGet {
+		panic("mcp handler: method " + method + " requires GET; mcp only calls via POST")
 	}
 	name := McpToolName(method)
 	if _, exists := h.toolsByName[name]; exists {

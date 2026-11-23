@@ -44,6 +44,10 @@ func (s *McpTestSystem) NamesV1(ctx *Context) ([]string, error) {
 	return []string{"a", "b"}, nil
 }
 
+func (s *McpTestSystem) ReadV1(ctx *Context, _ HttpGet) error {
+	return nil
+}
+
 func (s *McpTestSystem) HiddenV1(ctx *Context) error {
 	return nil
 }
@@ -264,6 +268,7 @@ func TestMcpHandler_Expose(t *testing.T) {
 	}{
 		{name: "unknown method", method: "mcp-test-system/nope.v1", description: "x"},
 		{name: "empty description", method: "mcp-test-system/greet.v1", description: " "},
+		{name: "GET method", method: "mcp-test-system/read.v1", description: "x"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

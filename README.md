@@ -448,7 +448,9 @@ The exposed http endpoint will only accept POST requests.
 The `NewHttpMethodHandler` will expose each remote procedure call as its own endpoint.
 By default, none of the endpoints will check for the correct http method.
 In case you want to enforce the usage of GET or POST, use jonson.HttpGet and jonson.HttpPost
-as parameters within your remote procedure call:
+as parameters within your remote procedure call.
+RPC over a single HTTP endpoint, websockets and MCP only use POST: a method requiring
+jonson.HttpGet is rejected with `ErrServerMethodNotAllowed` there, and `McpHandler.Expose` panics on it.
 
 ```go
 // LoginV1 allows an account to log in

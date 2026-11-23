@@ -611,54 +611,44 @@ func TestHttpRpcHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("check access to default providers", func(t *testing.T) {
-		wtr := makeRequest("test-system/check-requirables.v1", nil)
-		resErr, err := parseHttpRpcResponse(wtr, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if resErr != nil {
-			t.Fatalf("expected result to have no error, got: %v", resErr)
-		}
-	})
-
-	t.Run("expect current-time to return current time", func(t *testing.T) {
-		wtr := makeRequest("test-system/current-time.v1", nil)
-		result := &CurrentTimeV1Result{}
-		_, err := parseHttpRpcResponse(wtr, result)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Ts != tm.Unix() {
-			t.Fatalf("expected time to be equal, got: %d %d", result.Ts, tm.Unix())
+	t.Run("GET methods are not allowed over rpc", func(t *testing.T) {
+		for _, method := range []string{"test-system/check-requirables.v1", "test-system/current-time.v1", "test-system/me.v1"} {
+			testProvider.setLoggedIn(true)
+			rpcErr, err := parseHttpRpcResponse(makeRequest(method, nil), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rpcErr == nil || rpcErr.Code != ErrServerMethodNotAllowed.Code {
+				t.Fatalf("%s: expected method not allowed, got: %v", method, rpcErr)
+			}
 		}
 	})
 
-	t.Run("calls method me.v1", func(t *testing.T) {
+	t.Run("calls method get-profile.v1", func(t *testing.T) {
 		testProvider.setLoggedIn(true)
-		wtr := makeRequest("test-system/me.v1", nil)
-		result := &MeV1Result{}
-		_, err := parseHttpRpcResponse(wtr, result)
+		wtr := makeRequest("test-system/get-profile.v1", &GetProfileV1Params{Uuid: testAccountUuid})
+		result := &GetProfileV1Result{}
+		rpcErr, err := parseHttpRpcResponse(wtr, result)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Uuid != testAccountUuid {
-			t.Fatalf("expected uuids to match, got: %s | %s", result.Uuid, testAccountUuid)
+		if rpcErr != nil {
+			t.Fatalf("expected no error, got: %v", rpcErr)
+		}
+		if result.Name != "Silvio" {
+			t.Fatalf("expected name Silvio, got: %s", result.Name)
 		}
 	})
 
-	t.Run("calls method me.v1 and fails due to missing permission", func(t *testing.T) {
+	t.Run("calls method get-profile.v1 and fails due to missing permission", func(t *testing.T) {
 		testProvider.setLoggedIn(false)
-		wtr := makeRequest("test-system/me.v1", nil)
+		wtr := makeRequest("test-system/get-profile.v1", &GetProfileV1Params{Uuid: testAccountUuid})
 		errResult, err := parseHttpRpcResponse(wtr, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if errResult == nil {
-			t.Fatal("expected http call to return an error due to missing permission")
-		}
-		if errResult.Code != ErrUnauthorized.Code {
-			t.Fatalf("result code to match unauthorized, got: %d", errResult.Code)
+		if errResult == nil || errResult.Code != ErrUnauthorized.Code {
+			t.Fatalf("expected unauthorized, got: %v", errResult)
 		}
 	})
 }
