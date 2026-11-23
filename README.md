@@ -32,6 +32,7 @@ You will be able to expose functions either using:
 - a http endpoint per rpc
 - a single http endpoint serving all calls
 - websocket
+- MCP (Model Context Protocol), as tools for AI agents
 
 In order to do so, Jonson consists of:
 
@@ -462,6 +463,36 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, _ jonson.HttpPost, params 
 
 Now, the endpoint will only accept http calls using POST.
 In case the endpoint is called using a single endpoint for rpc or websocket, the required jonson.HttpPost has no effect.
+
+### MCP: methods as tools for AI agents
+
+The [Model Context Protocol](https://modelcontextprotocol.io) is JSON-RPC 2.0 as well, so `NewMcpHandler` serves
+registered methods as MCP tools. A tool call runs through the same pipeline as every other handler:
+providers, auth, validation, logging and the error `Secret`. Inside the method, `RequireRpcMeta(ctx).Source`
+is `jonson.RpcSourceMcp`.
+
+Only the methods you pass to `Expose` become tools, each with a description for the model:
+
+```go
+mcpHandler := jonson.NewMcpHandler(methodHandler, "/mcp").
+  Expose("authentication/login.v1", "Logs an account in and returns a session.").
+  Expose("account/get-profile.v1", "Returns the profile of the logged-in account.")
+
+server := jonson.NewServer(mcpHandler, rpcHandler, httpHandler)
+```
+
+- Tool names replace `/` and `.` with `_`: `account/get-profile.v1` becomes `account_get-profile_v1`.
+- The `inputSchema` of a tool is built from the params struct: `json` tags give the names, fields without
+  `omitempty` or `omitzero` are required, and a `description:"..."` tag documents a field for the model.
+  Unknown fields are rejected unless the params implement `AllowUnknownFieldsParams`.
+- A successful call returns the result as `structuredContent` (if it is a JSON object) and as text.
+  A failed call, including a validation error, returns `isError: true` with the jonson error as text, so that
+  the model can correct its arguments.
+- The transport is stateless streamable HTTP: one JSON-RPC message per `POST`, answered with `application/json`.
+  There are no sessions and no server-sent events (`GET` returns 405), so any replica can answer any call.
+  The handler supports `initialize`, `ping`, `tools/list` and `tools/call`.
+- Requests with an `Origin` header are only served if its host matches the request's host (protection against
+  DNS rebinding). Set `McpHandlerOpts.AllowOrigin` to allow other origins.
 
 ## Secret
 

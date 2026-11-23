@@ -198,6 +198,7 @@ const (
 	RpcSourceHttp    RpcSource = "http"
 	RpcSourceHttpRpc RpcSource = "httpRpc"
 	RpcSourceWs      RpcSource = "ws"
+	RpcSourceMcp     RpcSource = "mcp"
 
 	// This rpc call will be set in case
 	// one rpc calls another rpc
