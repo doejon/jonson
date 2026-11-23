@@ -2,7 +2,6 @@ package jonson
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"reflect"
@@ -30,11 +29,14 @@ type WebsocketHandler struct {
 }
 
 type WebsocketOptions struct {
-	Upgrader              *websocket.Upgrader
-	MaxMessageSize        int64
-	PingPeriod            time.Duration
-	PongWait              time.Duration
-	WriteWait             time.Duration
+	Upgrader       *websocket.Upgrader
+	MaxMessageSize int64
+	PingPeriod     time.Duration
+	PongWait       time.Duration
+	WriteWait      time.Duration
+
+	// MaxConcurrentMessages defines the max amount of concurrent messages per connection being processed.
+	// Once reached, the connection stops reading until a slot frees up (backpressure).
 	MaxConcurrentMessages uint64
 }
 
@@ -60,7 +62,6 @@ func NewWebsocketHandler(
 	path string,
 	options *WebsocketOptions,
 ) *WebsocketHandler {
-
 	if options.MaxConcurrentMessages == 0 {
 		options.MaxConcurrentMessages = DefaultMaxConcurrentMessages
 	}
@@ -119,18 +120,18 @@ func (w *WSClient) run() {
 	w.writer()
 }
 
-// make sure to abort sending in case the websocket has been closed
-
+// sendMessage queues b for the writer; it aborts in case the websocket has been closed.
 func (w *WSClient) sendMessage(b []byte) {
 	select {
 	case w.send <- b:
 	case <-w.done:
+		// writer already shut down; stop sending
 	}
 }
+
+// reader reads incoming messages from the websocket connection and processes them.
 func (w *WSClient) reader() {
-	defer func() {
-		w.conn.Close()
-	}()
+	defer w.conn.Close()
 
 	w.conn.SetReadLimit(w.ws.options.MaxMessageSize)
 	w.conn.SetReadDeadline(time.Now().Add(w.ws.options.PongWait))
@@ -139,11 +140,8 @@ func (w *WSClient) reader() {
 		return nil
 	})
 
-	// make sure to not spawn too many goroutines in parallel, otherwise we might run into memory issues.
-	// This is a semaphore channel that will limit the number of concurrent messages being processed.
+	// semaphore limiting the number of messages being processed concurrently on this connection
 	limiter := make(chan struct{}, int(w.ws.options.MaxConcurrentMessages))
-
-	// make sure to abort sending in case the websocket has been closed
 
 	for {
 		messageType, p, err := w.conn.ReadMessage()
@@ -154,51 +152,41 @@ func (w *WSClient) reader() {
 			return
 		}
 
-		if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
-			go func() {
-				select {
-				case limiter <- struct{}{}:
-				case <-w.done:
-					// writer already shut down; stop spawning new work
-					return
-				default:
-					// limit reached, abort
-					errResp := NewRpcErrorResponse(nil, ErrTooManyRequests.CloneWithData(&ErrorData{
-						Debug: fmt.Sprintf("max of %d parallel requests allowed per websocket connection", w.ws.options.MaxConcurrentMessages),
-					}))
-					// batch response
-					b, _ := w.methodHandler.opts.JsonHandler.Marshal(errResp)
-					w.sendMessage(b)
-					return
-				}
-				// release limit
-				defer func() { <-limiter }()
-
-				// The initial call to processRpcMessages remains the same.
-				resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, RpcHttpMethodPost, w.httpRequest, nil, w, p)
-
-				if len(resp) == 0 {
-					// nothing to return but obviously everything was ok
-					return
-				}
-
-				var b []byte
-				if !batch {
-					// single response
-					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp[0])
-
-				} else {
-					// batch response
-					b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp)
-				}
-
-				// make sure to abort sending in case the websocket has been closed
-				w.sendMessage(b)
-			}()
+		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
+			continue
 		}
+
+		// block reading until a slot frees up: TCP backpressure slows the client down
+		select {
+		case limiter <- struct{}{}:
+		case <-w.done:
+			// writer already shut down; stop reading
+			return
+		}
+		// we may have waited a while; don't let the read deadline kill a busy-but-healthy connection
+		w.conn.SetReadDeadline(time.Now().Add(w.ws.options.PongWait))
+
+		go func() {
+			defer func() { <-limiter }()
+
+			resp, batch := w.methodHandler.processRpcMessages(RpcSourceWs, RpcHttpMethodPost, w.httpRequest, nil, w, p)
+			if len(resp) == 0 {
+				// nothing to return but obviously everything was ok
+				return
+			}
+
+			var b []byte
+			if !batch {
+				b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp[0])
+			} else {
+				b, _ = w.methodHandler.opts.JsonHandler.Marshal(resp)
+			}
+			w.sendMessage(b)
+		}()
 	}
 }
 
+// writer accepts all incoming messages and writes them to the websocket connection. It also sends ping messages to keep the connection alive.
 func (w *WSClient) writer() {
 	ticker := time.NewTicker(w.ws.options.PingPeriod)
 	defer func() {
