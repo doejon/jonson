@@ -52,6 +52,7 @@ type GetProfileV1Result struct {
 	Name string `json:"name"`
 }
 
+// GetProfileV1 returns the name of the account with the given uuid.
 func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.HttpPost, params *GetProfileV1Params) (*GetProfileV1Result, error) {
 	jonson.RequireLogger(ctx).Info("calling GetProfileV1")
 

@@ -16,3 +16,9 @@ func (*SubmitPreferencesV1Params) JonsonFieldDescriptions() map[string]string {
 		"Tags":      "free-form interest tags",
 	}
 }
+
+func (*Account) JonsonMethodDescriptions() map[string]string {
+	return map[string]string{
+		"account/get-profile.v1": "GetProfileV1 returns the name of the account with the given uuid.",
+	}
+}

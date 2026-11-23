@@ -36,6 +36,10 @@ func (s *McpTestSystem) GreetV1(ctx *Context, p *McpGreetV1Params) (*McpGreetV1R
 	return &McpGreetV1Result{Greeting: strings.Repeat("hello "+p.Name+" ", max(p.Times, 1))}, nil
 }
 
+func (*McpTestSystem) JonsonMethodDescriptions() map[string]string {
+	return map[string]string{"mcp-test-system/fail.v1": "Always fails."}
+}
+
 func (s *McpTestSystem) FailV1(ctx *Context) error {
 	return errors.New("db down")
 }
@@ -59,7 +63,7 @@ func newMcpTestServer(t *testing.T) (http.Handler, *McpTestSystem) {
 	mh.RegisterSystem(sys)
 	mcp := NewMcpHandler(mh, "/mcp").
 		Expose(sys.GreetV1, "Greets someone.").
-		Expose(sys.FailV1, "Always fails.").
+		Expose(sys.FailV1).
 		ExposeMethod("mcp-test-system/names.v1", "Lists names.")
 	return NewServer(mcp), sys
 }
@@ -139,6 +143,9 @@ func TestMcpHandler_ToolsList(t *testing.T) {
 	greet := tools[0].(map[string]any)
 	if greet["description"] != "Greets someone." {
 		t.Errorf("description = %v", greet["description"])
+	}
+	if d := tools[1].(map[string]any)["description"]; d != "Always fails." {
+		t.Errorf("description from MethodDescriber = %v", d)
 	}
 	schema, _ := json.Marshal(greet["inputSchema"])
 	want := `{"additionalProperties":false,"properties":{"name":{"description":"who to greet","type":"string"},"times":{"type":"integer"}},"required":["name"],"type":"object"}`
@@ -283,6 +290,8 @@ func TestMcpHandler_Expose(t *testing.T) {
 		{"closure", func(h *McpHandler) { h.Expose(func() {}, "x") }},
 		{"not a func", func(h *McpHandler) { h.Expose("mcp-test-system/greet.v1", "x") }},
 		{"empty description", func(h *McpHandler) { h.Expose(sys.GreetV1, " ") }},
+		{"no description and no doc comment", func(h *McpHandler) { h.Expose(sys.GreetV1) }},
+		{"two descriptions", func(h *McpHandler) { h.Expose(sys.GreetV1, "a", "b") }},
 		{"GET method", func(h *McpHandler) { h.Expose(sys.ReadV1, "x") }},
 		{"exposed twice", func(h *McpHandler) { h.Expose(sys.GreetV1, "x").ExposeMethod("mcp-test-system/greet.v1", "x") }},
 		{"unknown method name", func(h *McpHandler) { h.ExposeMethod("mcp-test-system/nope.v1", "x") }},

@@ -359,7 +359,7 @@ func main() {
 	}
 
 	var (
-		dc             = doc.New(pkg, fpath, 0)
+		dc             = doc.New(pkg, fpath, doc.PreserveAST)
 		whitelistTypes []string
 		listTypes      []*ast.Object
 		listMethods    []*ast.FuncDecl
@@ -406,7 +406,7 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 
-	if err := writeDescriptionsFile(pkg); err != nil {
+	if err := writeDescriptionsFile(pkg, listMethods); err != nil {
 		log.Fatalf("error: %s", err)
 	}
 
@@ -431,8 +431,8 @@ func getRpcHttpMethod(decl *ast.FuncDecl) string {
 	return m
 }
 
-// writeDescriptionsFile writes the field descriptions file
-func writeDescriptionsFile(pkg *ast.Package) error {
+// writeDescriptionsFile writes the field and method descriptions file
+func writeDescriptionsFile(pkg *ast.Package, listMethods []*ast.FuncDecl) error {
 	files := make([]*ast.File, 0, len(pkg.Files))
 	for _, f := range pkg.Files {
 		files = append(files, f)
@@ -443,7 +443,42 @@ func writeDescriptionsFile(pkg *ast.Package) error {
 	for _, f := range files {
 		writeFieldDescriptions(wtr, f)
 	}
+	writeMethodDescriptions(wtr, pkg.Name, listMethods)
 	return writeFile(fNameDescriptions, prependHeader(wtr, pkg.Name))
+}
+
+// writeMethodDescriptions writes a JonsonMethodDescriptions method on the package's
+// system type, mapping each documented remote procedure to its doc comment, e.g. as
+// the description of an MCP tool. Systems are found like in writeProcedureFile.
+func writeMethodDescriptions(wtr *bytes.Buffer, pkgName string, listMethods []*ast.FuncDecl) {
+	var recv string
+	var entries []string
+	for _, fn := range listMethods {
+		if fn.Recv == nil || len(fn.Recv.List) == 0 {
+			continue
+		}
+		star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		ident, ok := star.X.(*ast.Ident)
+		if !ok || firstToLower(ident.Name) != pkgName {
+			continue
+		}
+		text := strings.TrimSpace(fn.Doc.Text())
+		if text == "" {
+			continue
+		}
+		recv = ident.Name
+		method, version := jonson.SplitGoMethodName(fn.Name.Name)
+		name := jonson.GetDefaultMethodName(jonson.ToKebabCase(ident.Name), method, version)
+		entries = append(entries, "\t\t"+strconv.Quote(name)+": "+strconv.Quote(text)+",\n")
+	}
+	if len(entries) == 0 {
+		return
+	}
+	fmt.Fprintf(wtr, "\nfunc (*%s) JonsonMethodDescriptions() map[string]string {\n\treturn map[string]string{\n%s\t}\n}\n",
+		recv, strings.Join(entries, ""))
 }
 
 // writeFieldDescriptions writes a JonsonFieldDescriptions method for each exported,

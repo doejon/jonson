@@ -34,7 +34,7 @@ func main() {
 	httpMethod := jonson.NewHttpMethodHandler(methods)
 	// expose selected methods as tools for AI agents (Model Context Protocol)
 	mcp := jonson.NewMcpHandler(methods, "/mcp").
-		Expose(accountSystem.GetProfileV1, "Returns the name of the account with the given uuid.").
+		Expose(accountSystem.GetProfileV1).
 		Expose(accountSystem.SubmitPreferencesV1, "Stores the marketing preferences of an account and returns a summary.")
 	rgxp := jonson.NewHttpRegexpHandler(providers, methods)
 	rgxp.RegisterRegexp(regexp.MustCompile("/status"), func(ctx *jonson.Context, w *jonson.HttpResponseWriter) {

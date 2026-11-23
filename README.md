@@ -475,12 +475,14 @@ is `jonson.RpcSourceMcp`.
 
 Only the methods you pass to `Expose` become tools, each with a description for the model.
 Pass the method value of a registered system; methods registered by name with `RegisterMethod`
-can be exposed with `ExposeMethod("system/method.v1", ...)`:
+can be exposed with `ExposeMethod("system/method.v1", ...)`.
+Without a description, the method's doc comment is used: `jonson-generate` writes it into
+`jonson.descriptions.gen.go` (as `JonsonMethodDescriptions`, see `jonson.MethodDescriber`):
 
 ```go
 mcpHandler := jonson.NewMcpHandler(methodHandler, "/mcp").
   Expose(authentication.LoginV1, "Logs an account in and returns a session.").
-  Expose(account.GetProfileV1, "Returns the profile of the logged-in account.")
+  Expose(account.GetProfileV1) // uses the doc comment of GetProfileV1
 
 server := jonson.NewServer(mcpHandler, rpcHandler, httpHandler)
 ```

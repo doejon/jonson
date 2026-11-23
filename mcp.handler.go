@@ -84,15 +84,23 @@ func McpToolName(method string) string {
 // Expose makes a method of a registered system available as a tool. Pass the method
 // value, such as account.GetProfileV1 for a registered *Account; only its type and name
 // are used, the call goes to the registered system.
-// The description tells the model what the tool does and when to use it.
-// Expose panics on anything but a method value of a registered system, an empty
+// The description tells the model what the tool does and when to use it. Without one,
+// the method's doc comment is used (see MethodDescriber).
+// Expose panics on anything but a method value of a registered system, a missing
 // description or a method requiring GET, like RegisterMethod panics on an invalid definition.
-func (h *McpHandler) Expose(fn any, description string) *McpHandler {
+func (h *McpHandler) Expose(fn any, description ...string) *McpHandler {
 	method, ok := methodValueName(fn)
 	if !ok {
 		panic("mcp handler: Expose needs a method value such as system.MethodV1")
 	}
-	return h.ExposeMethod(method, description)
+	return h.ExposeMethod(method, description...)
+}
+
+// MethodDescriber is implemented by systems whose methods are documented, e.g. by
+// jonson-generate, which turns method doc comments into JonsonMethodDescriptions.
+// Descriptions are keyed by endpoint name, such as "account/get-profile.v1".
+type MethodDescriber interface {
+	JonsonMethodDescriptions() map[string]string
 }
 
 // methodValueName returns the endpoint name of a method value, e.g. "account/get-profile.v1"
@@ -123,12 +131,21 @@ func methodValueName(fn any) (string, bool) {
 
 // ExposeMethod is Expose for a method given by name, such as "account/get-profile.v1";
 // use it for methods registered with RegisterMethod under a custom name.
-func (h *McpHandler) ExposeMethod(method string, description string) *McpHandler {
+func (h *McpHandler) ExposeMethod(method string, description ...string) *McpHandler {
 	endpoint, ok := h.methodHandler.endpoints[method]
 	if !ok {
 		panic("mcp handler: method " + method + " is not registered")
 	}
-	if strings.TrimSpace(description) == "" {
+	if len(description) > 1 {
+		panic("mcp handler: method " + method + " has more than one description")
+	}
+	desc := strings.Join(description, "")
+	if desc == "" && endpoint.methodContext.IsValid() {
+		if d, ok := endpoint.methodContext.Interface().(MethodDescriber); ok {
+			desc = d.JonsonMethodDescriptions()[method]
+		}
+	}
+	if strings.TrimSpace(desc) == "" {
 		panic("mcp handler: method " + method + " needs a description")
 	}
 	if endpoint.httpMethod == RpcHttpMethodGet {
@@ -140,7 +157,7 @@ func (h *McpHandler) ExposeMethod(method string, description string) *McpHandler
 	}
 	tool := &mcpTool{
 		Name:        name,
-		Description: description,
+		Description: desc,
 		InputSchema: mcpInputSchema(endpoint.paramsType),
 		method:      method,
 	}
