@@ -51,38 +51,41 @@ var ignoredFileNames = map[string]struct{}{
 	fNameDescriptions: {},
 }
 
-// readPackage reads package.
-// ast.Package has been deprecated, however
-// none of the other libraries did migrate so far either.
-func readPackage() (*ast.Package, *token.FileSet, error) {
-	stat, err := os.Stat(fpath)
+// readPackage parses the go files in fpath, ignoring tests and the generated files.
+// All files need to belong to the same package.
+func readPackage() (string, []*ast.File, *token.FileSet, error) {
+	entries, err := os.ReadDir(fpath)
 	if err != nil {
-		return nil, nil, err
-	}
-	if !stat.IsDir() {
-		return nil, nil, errors.New("valid path file expected")
+		return "", nil, nil, err
 	}
 
-	// parse ast
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, fpath, func(fi os.FileInfo) bool {
-		_, ok := ignoredFileNames[fi.Name()]
-		return !ok
-	}, parser.ParseComments)
-	if err != nil {
-		return nil, nil, err
+	var (
+		pkgName string
+		files   []*ast.File
+	)
+	// os.ReadDir sorts by name, so files and their positions are in a stable order
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		if _, ok := ignoredFileNames[e.Name()]; ok {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(fpath, e.Name()), nil, parser.ParseComments)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if pkgName != "" && f.Name.Name != pkgName {
+			return "", nil, nil, fmt.Errorf("exactly 1 package expected, got: %s and %s in path %s", pkgName, f.Name.Name, fpath)
+		}
+		pkgName = f.Name.Name
+		files = append(files, f)
 	}
-
-	// search for type declarations
-	if len(pkgs) != 1 {
-		return nil, nil, fmt.Errorf("exactly 1 package expected, got: %d in path %s", len(pkgs), fpath)
+	if len(files) == 0 {
+		return "", nil, nil, fmt.Errorf("no go files found in path %s", fpath)
 	}
-	var pkg *ast.Package
-	for _, p := range pkgs {
-		pkg = p
-	}
-
-	return pkg, fset, nil
+	return pkgName, files, fset, nil
 }
 
 func writeFile(name string, content []byte) error {
@@ -116,23 +119,8 @@ package ` + pkgName + `
 }
 
 // writeProcedureFile writes the procedure file
-func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.FuncDecl, structs []*ast.Object) error {
+func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.FuncDecl, types map[string]*ast.TypeSpec) error {
 	wtr := bytes.NewBuffer([]byte{})
-
-	findObject := func(ident *ast.Ident) *ast.Object {
-		if ident == nil {
-			return nil
-		}
-		if ident.Obj != nil {
-			return ident.Obj
-		}
-		for _, v := range structs {
-			if ident.Name == v.Name {
-				return v
-			}
-		}
-		return nil
-	}
 
 	needsJonsonImport := false
 
@@ -200,10 +188,8 @@ func writeProcedureFile(fset *token.FileSet, pkgName string, listMethods []*ast.
 			lastArg := object.Type.Params.List[len(object.Type.Params.List)-1]
 			starExpr, ok := lastArg.Type.(*ast.StarExpr)
 			if ok {
-				ident, ok := starExpr.X.(*ast.Ident)
-				identObj := findObject(ident)
-				if ok && identObj != nil {
-					if decl, ok := identObj.Decl.(*ast.TypeSpec); ok {
+				if ident, ok := starExpr.X.(*ast.Ident); ok {
+					if decl, ok := types[ident.Name]; ok {
 						if stru, ok := decl.Type.(*ast.StructType); ok {
 							paramType = extractParam(lastArg, decl, ident, stru)
 						}
@@ -292,22 +278,22 @@ func firstToLower(s string) string {
 	return string(r)
 }
 
-func writeTypesFile(fset *token.FileSet, pkgName string, listTypes []*ast.Object) error {
+func writeTypesFile(fset *token.FileSet, pkgName string, listTypes []*ast.TypeSpec) error {
 	needsJonsonImport := false
 	wtr := bytes.NewBuffer([]byte{})
 
 	// walk types
 	for _, object := range listTypes {
 		pos := fset.Position(object.Pos())
-		t := object.Decl.(*ast.TypeSpec).Type
+		name := object.Name.Name
 
 		var ts, typeName string
-		if _, ok := t.(*ast.InterfaceType); ok {
-			ts = "interface" + object.Name
-			typeName = object.Name
-		} else if _, ok := t.(*ast.StructType); ok {
+		if _, ok := object.Type.(*ast.InterfaceType); ok {
+			ts = "interface" + name
+			typeName = name
+		} else if _, ok := object.Type.(*ast.StructType); ok {
 			ts = "struct"
-			typeName = "*" + object.Name
+			typeName = "*" + name
 		} else {
 			continue
 		}
@@ -327,13 +313,13 @@ func Require%s(ctx *jonson.Context) %s {
 }
 `,
 			pos.Filename, pos.Line,
-			object.Name,
+			name,
 			ts,
-			object.Name,
+			name,
 			typeName,
-			object.Name,
+			name,
 			typeName,
-			object.Name,
+			name,
 			typeName,
 		)
 	}
@@ -353,17 +339,21 @@ func Require%s(ctx *jonson.Context) %s {
 
 func main() {
 	flag.Parse()
-	pkg, fset, err := readPackage()
+	pkgName, files, fset, err := readPackage()
+	if err != nil {
+		log.Fatalf("error: %s", err)
+	}
+
+	dc, err := doc.NewFromFiles(fset, files, fpath, doc.PreserveAST)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
 
 	var (
-		dc             = doc.New(pkg, fpath, doc.PreserveAST)
 		whitelistTypes []string
-		listTypes      []*ast.Object
+		listTypes      []*ast.TypeSpec
 		listMethods    []*ast.FuncDecl
-		structs        []*ast.Object
+		types          = map[string]*ast.TypeSpec{}
 	)
 
 	for _, t := range dc.Types {
@@ -372,24 +362,26 @@ func main() {
 		}
 	}
 
-	for _, f := range pkg.Files {
+	for _, f := range files {
 		for _, d := range f.Decls {
-			// methods
-			if fn, ok := d.(*ast.FuncDecl); ok {
-				if apiNameMatcher.MatchString(fn.Name.Name) {
-					listMethods = append(listMethods, fn)
+			switch d := d.(type) {
+			case *ast.FuncDecl:
+				// methods
+				if apiNameMatcher.MatchString(d.Name.Name) {
+					listMethods = append(listMethods, d)
 				}
-			}
-		}
-
-		for name, object := range f.Scope.Objects {
-			if object.Kind == ast.Typ && ast.IsExported(name) {
-				structs = append(structs, object)
-			}
-			// search types
-			if object.Kind == ast.Typ && ast.IsExported(name) && slices.Contains(whitelistTypes, name) {
-				listTypes = append(listTypes, object)
-				continue
+			case *ast.GenDecl:
+				// types
+				if d.Tok != token.TYPE {
+					continue
+				}
+				for _, spec := range d.Specs {
+					ts := spec.(*ast.TypeSpec)
+					types[ts.Name.Name] = ts
+					if ts.Name.IsExported() && slices.Contains(whitelistTypes, ts.Name.Name) {
+						listTypes = append(listTypes, ts)
+					}
+				}
 			}
 		}
 	}
@@ -398,18 +390,17 @@ func main() {
 	sort.Slice(listTypes, func(i, j int) bool { return listTypes[i].Pos() < listTypes[j].Pos() })
 	sort.Slice(listMethods, func(i, j int) bool { return listMethods[i].Pos() < listMethods[j].Pos() })
 
-	if err := writeProcedureFile(fset, pkg.Name, listMethods, structs); err != nil {
+	if err := writeProcedureFile(fset, pkgName, listMethods, types); err != nil {
 		log.Fatalf("error: %s", err)
 	}
 
-	if err := writeTypesFile(fset, pkg.Name, listTypes); err != nil {
+	if err := writeTypesFile(fset, pkgName, listTypes); err != nil {
 		log.Fatalf("error: %s", err)
 	}
 
-	if err := writeDescriptionsFile(pkg, listMethods); err != nil {
+	if err := writeDescriptionsFile(pkgName, files, listMethods); err != nil {
 		log.Fatalf("error: %s", err)
 	}
-
 }
 
 func getRpcHttpMethod(decl *ast.FuncDecl) string {
@@ -432,19 +423,13 @@ func getRpcHttpMethod(decl *ast.FuncDecl) string {
 }
 
 // writeDescriptionsFile writes the field and method descriptions file
-func writeDescriptionsFile(pkg *ast.Package, listMethods []*ast.FuncDecl) error {
-	files := make([]*ast.File, 0, len(pkg.Files))
-	for _, f := range pkg.Files {
-		files = append(files, f)
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Pos() < files[j].Pos() })
-
+func writeDescriptionsFile(pkgName string, files []*ast.File, listMethods []*ast.FuncDecl) error {
 	wtr := bytes.NewBuffer([]byte{})
 	for _, f := range files {
 		writeFieldDescriptions(wtr, f)
 	}
-	writeMethodDescriptions(wtr, pkg.Name, listMethods)
-	return writeFile(fNameDescriptions, prependHeader(wtr, pkg.Name))
+	writeMethodDescriptions(wtr, pkgName, listMethods)
+	return writeFile(fNameDescriptions, prependHeader(wtr, pkgName))
 }
 
 // writeMethodDescriptions writes a JonsonMethodDescriptions method on the package's
