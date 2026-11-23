@@ -903,3 +903,31 @@ func TestHttpHandlerRegexpAuth(t *testing.T) {
 	})
 
 }
+
+type VerbTestSystem struct {
+	lastVerb RpcHttpMethod
+}
+
+func (s *VerbTestSystem) VerbV1(ctx *Context) error {
+	s.lastVerb = RequireRpcMeta(ctx).HttpMethod
+	return nil
+}
+
+func TestHttpHandlerRpcMetaHttpMethod(t *testing.T) {
+	sys := &VerbTestSystem{}
+	mh := NewMethodHandler(NewFactory(), NewDebugSecret(), nil)
+	mh.RegisterSystem(sys)
+	h := NewHttpMethodHandler(mh)
+
+	for verb, want := range map[string]RpcHttpMethod{
+		http.MethodGet:  RpcHttpMethodGet,
+		http.MethodPost: RpcHttpMethodPost,
+		http.MethodPut:  RpcHttpMethodUnknown,
+	} {
+		sys.lastVerb = ""
+		h.Handle(httptest.NewRecorder(), httptest.NewRequest(verb, "/verb-test-system/verb.v1", nil))
+		if sys.lastVerb != want {
+			t.Errorf("%s: RpcMeta.HttpMethod = %q, want %q", verb, sys.lastVerb, want)
+		}
+	}
+}

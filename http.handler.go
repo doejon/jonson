@@ -473,7 +473,7 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 		pl, err = h.unmarshalParams(req, endpoint)
 	}
 
-	method := RpcHttpMethod(req.Method)
+	method := getRpcHttpMethod(req.Method)
 
 	if err != nil {
 		h.methodHandler.getLogger(nil).Warn("http method handler: read error", "error", err)
