@@ -42,9 +42,7 @@ type GetProfileV1Params struct {
 }
 
 func (g *GetProfileV1Params) JonsonValidate(v *jonson.Validator) {
-	if len(g.Uuid) != 36 {
-		v.Path("uuid").Message("uuid invalid")
-	}
+	v.Path("uuid").Check(len(g.Uuid) == 36, "uuid invalid")
 }
 
 type GetProfileV1Result struct {
@@ -72,12 +70,10 @@ type SubmitPreferencesV1Params struct {
 }
 
 func (p *SubmitPreferencesV1Params) JonsonValidate(v *jonson.Validator) {
-	if p.Name == "" {
-		v.Path("name").Message("name is required")
-	}
-	if p.Age < 0 {
-		v.Path("age").Message("age must be zero or greater")
-	}
+	v.Path("name").Check(p.Name != "", "name is required")
+	v.Path("age").Check(p.Age >= 0, "age must be zero or greater")
+	v.Path("marketing").Skip()
+	v.Path("tags").Skip()
 }
 
 type SubmitPreferencesV1Result struct {
@@ -111,12 +107,9 @@ type QueryPreviewV1Params struct {
 }
 
 func (p *QueryPreviewV1Params) JonsonValidate(v *jonson.Validator) {
-	if p.Count <= 0 {
-		v.Path("count").Message("count must be greater than 0")
-	}
-	if len(p.Tags) == 0 {
-		v.Path("tags").Message("at least one tag is required")
-	}
+	v.Path("count").Check(p.Count > 0, "count must be greater than 0")
+	v.Path("enabled").Skip()
+	v.Path("tags").Check(len(p.Tags) > 0, "at least one tag is required")
 }
 
 type QueryPreviewV1Result struct {
