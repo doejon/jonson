@@ -58,9 +58,9 @@ func newMcpTestServer(t *testing.T) (http.Handler, *McpTestSystem) {
 	mh := NewMethodHandler(NewFactory(), NewDebugSecret(), nil)
 	mh.RegisterSystem(sys)
 	mcp := NewMcpHandler(mh, "/mcp").
-		Expose("mcp-test-system/greet.v1", "Greets someone.").
-		Expose("mcp-test-system/fail.v1", "Always fails.").
-		Expose("mcp-test-system/names.v1", "Lists names.")
+		Expose(sys.GreetV1, "Greets someone.").
+		Expose(sys.FailV1, "Always fails.").
+		ExposeMethod("mcp-test-system/names.v1", "Lists names.")
 	return NewServer(mcp), sys
 }
 
@@ -258,26 +258,43 @@ func TestMcpHandler_Transport(t *testing.T) {
 	}
 }
 
+type McpUnregisteredSystem struct{}
+
+func (s *McpUnregisteredSystem) GreetV1(ctx *Context) error { return nil }
+
+func mcpPlainFuncV1(ctx *Context) error { return nil }
+
 func TestMcpHandler_Expose(t *testing.T) {
+	sys := &McpTestSystem{}
 	mh := NewMethodHandler(NewFactory(), NewDebugSecret(), nil)
-	mh.RegisterSystem(&McpTestSystem{})
+	mh.RegisterSystem(sys)
+
+	if got, _ := methodValueName(sys.GreetV1); got != "mcp-test-system/greet.v1" {
+		t.Errorf("methodValueName(sys.GreetV1) = %q", got)
+	}
+
 	tests := []struct {
-		name        string
-		method      string
-		description string
+		name   string
+		expose func(h *McpHandler)
 	}{
-		{name: "unknown method", method: "mcp-test-system/nope.v1", description: "x"},
-		{name: "empty description", method: "mcp-test-system/greet.v1", description: " "},
-		{name: "GET method", method: "mcp-test-system/read.v1", description: "x"},
+		{"unregistered system", func(h *McpHandler) { h.Expose((&McpUnregisteredSystem{}).GreetV1, "x") }},
+		{"method expression", func(h *McpHandler) { h.Expose((*McpTestSystem).GreetV1, "x") }},
+		{"plain func", func(h *McpHandler) { h.Expose(mcpPlainFuncV1, "x") }},
+		{"closure", func(h *McpHandler) { h.Expose(func() {}, "x") }},
+		{"not a func", func(h *McpHandler) { h.Expose("mcp-test-system/greet.v1", "x") }},
+		{"empty description", func(h *McpHandler) { h.Expose(sys.GreetV1, " ") }},
+		{"GET method", func(h *McpHandler) { h.Expose(sys.ReadV1, "x") }},
+		{"exposed twice", func(h *McpHandler) { h.Expose(sys.GreetV1, "x").ExposeMethod("mcp-test-system/greet.v1", "x") }},
+		{"unknown method name", func(h *McpHandler) { h.ExposeMethod("mcp-test-system/nope.v1", "x") }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func() {
 				if recover() == nil {
-					t.Errorf("Expose(%q, %q) did not panic", tc.method, tc.description)
+					t.Error("did not panic")
 				}
 			}()
-			NewMcpHandler(mh, "/mcp").Expose(tc.method, tc.description)
+			tc.expose(NewMcpHandler(mh, "/mcp"))
 		})
 	}
 }

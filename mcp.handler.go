@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -79,11 +81,49 @@ func McpToolName(method string) string {
 	return strings.NewReplacer("/", "_", ".", "_").Replace(method)
 }
 
-// Expose makes a registered method, such as "account/get-profile.v1", available as a tool.
+// Expose makes a method of a registered system available as a tool. Pass the method
+// value, such as account.GetProfileV1 for a registered *Account; only its type and name
+// are used, the call goes to the registered system.
 // The description tells the model what the tool does and when to use it.
-// Expose panics on an unknown method, an empty description or a method requiring GET, like RegisterMethod
-// panics on an invalid definition.
-func (h *McpHandler) Expose(method string, description string) *McpHandler {
+// Expose panics on anything but a method value of a registered system, an empty
+// description or a method requiring GET, like RegisterMethod panics on an invalid definition.
+func (h *McpHandler) Expose(fn any, description string) *McpHandler {
+	method, ok := methodValueName(fn)
+	if !ok {
+		panic("mcp handler: Expose needs a method value such as system.MethodV1")
+	}
+	return h.ExposeMethod(method, description)
+}
+
+// methodValueName returns the endpoint name of a method value, e.g. "account/get-profile.v1"
+// for account.GetProfileV1, derived from the symbol the compiler gives it: "pkg.(*Account).GetProfileV1-fm".
+func methodValueName(fn any) (string, bool) {
+	v := reflect.ValueOf(fn)
+	if v.Kind() != reflect.Func || v.IsNil() {
+		return "", false
+	}
+	f := runtime.FuncForPC(v.Pointer())
+	if f == nil {
+		return "", false
+	}
+	// only method values carry the -fm suffix; plain funcs and closures don't have a receiver
+	name, ok := strings.CutSuffix(f.Name(), "-fm")
+	if !ok {
+		return "", false
+	}
+	i := strings.LastIndex(name, ".")
+	recv, goMethod := name[:i], name[i+1:]
+	recv = strings.Trim(recv[strings.LastIndex(recv, ".")+1:], "(*)")
+	methodName, version := SplitGoMethodName(goMethod)
+	if version == 0 {
+		return "", false
+	}
+	return GetDefaultMethodName(ToKebabCase(recv), methodName, version), true
+}
+
+// ExposeMethod is Expose for a method given by name, such as "account/get-profile.v1";
+// use it for methods registered with RegisterMethod under a custom name.
+func (h *McpHandler) ExposeMethod(method string, description string) *McpHandler {
 	endpoint, ok := h.methodHandler.endpoints[method]
 	if !ok {
 		panic("mcp handler: method " + method + " is not registered")
