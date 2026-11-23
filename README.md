@@ -488,6 +488,8 @@ server := jonson.NewServer(mcpHandler, rpcHandler, httpHandler)
 - Tool names replace `/` and `.` with `_`: `account/get-profile.v1` becomes `account_get-profile_v1`.
 - The `inputSchema` of a tool is built from the params struct: `json` tags give the names, fields without
   `omitempty` or `omitzero` are required, and a `description:"..."` tag documents a field for the model.
+  Without a tag, the field's code comment is used: `jonson-generate` writes the comments of all exported
+  structs into `jonson.descriptions.gen.go` (as `JonsonFieldDescriptions`, see `jonson.FieldDescriber`).
   Unknown fields are rejected unless the params implement `AllowUnknownFieldsParams`.
 - A successful call returns the result as `structuredContent` (if it is a JSON object) and as text.
   A failed call, including a validation error, returns `isError: true` with the jonson error as text, so that

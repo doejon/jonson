@@ -38,6 +38,7 @@ func (a *Account) subFnCall(ctx *jonson.Context) {
 
 type GetProfileV1Params struct {
 	jonson.Params
+	// Uuid of the account
 	Uuid string `json:"uuid"`
 }
 
@@ -65,10 +66,10 @@ func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.Htt
 
 type SubmitPreferencesV1Params struct {
 	jonson.Params
-	Name      string   `json:"name"`
-	Age       int      `json:"age"`
-	Marketing bool     `json:"marketing"`
-	Tags      []string `json:"tags"`
+	Name      string   `json:"name"`           // name of the account holder
+	Age       int      `json:"age"`            // age in years
+	Marketing bool     `json:"marketing"`      // whether the account accepts marketing messages
+	Tags      []string `json:"tags,omitempty"` // free-form interest tags
 }
 
 func (p *SubmitPreferencesV1Params) JonsonValidate(v *jonson.Validator) {

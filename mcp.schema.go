@@ -12,11 +12,20 @@ var (
 	typeRawMessage  = reflect.TypeFor[json.RawMessage]()
 	typeJsonNumber  = reflect.TypeFor[json.Number]()
 	typeAllowFields = reflect.TypeFor[AllowUnknownFieldsParams]()
+	typeDescriber   = reflect.TypeFor[FieldDescriber]()
 )
+
+// FieldDescriber is implemented by structs whose fields are documented, e.g. by
+// jonson-generate, which turns field comments into JonsonFieldDescriptions.
+// Descriptions are keyed by Go field name; a `description:"..."` tag takes precedence.
+type FieldDescriber interface {
+	JonsonFieldDescriptions() map[string]string
+}
 
 // mcpInputSchema returns the JSON Schema of a method's params type; nil means no params.
 // Field names, embedding and optional fields follow encoding/json: a field without
-// omitempty or omitzero is required. The struct tag `description:"..."` documents a field.
+// omitempty or omitzero is required. The struct tag `description:"..."` documents a field,
+// falling back to FieldDescriber (generated from field comments).
 // Objects reject unknown fields like the default JsonHandler does, unless the params
 // implement AllowUnknownFieldsParams.
 // ponytail: no $ref, enums or formats except date-time; add them when a tool needs them.
@@ -83,6 +92,10 @@ func jsonSchemaOf(t reflect.Type, strict bool, seen map[reflect.Type]bool) map[s
 }
 
 func addStructFields(t reflect.Type, strict bool, seen map[reflect.Type]bool, props map[string]any, required *[]string) {
+	var descriptions map[string]string
+	if reflect.PointerTo(t).Implements(typeDescriber) {
+		descriptions = reflect.New(t).Interface().(FieldDescriber).JonsonFieldDescriptions()
+	}
 	for i := range t.NumField() {
 		f := t.Field(i)
 		tag := f.Tag.Get("json")
@@ -114,6 +127,8 @@ func addStructFields(t reflect.Type, strict bool, seen map[reflect.Type]bool, pr
 			schema = map[string]any{"type": "string"}
 		}
 		if d := f.Tag.Get("description"); d != "" {
+			schema["description"] = d
+		} else if d := descriptions[f.Name]; d != "" {
 			schema["description"] = d
 		}
 		props[name] = schema

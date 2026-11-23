@@ -332,6 +332,37 @@ type mcpLooseParams struct {
 
 func (p *mcpLooseParams) JonsonAllowUnknownFields() {}
 
+type mcpDescribedNested struct {
+	A string `json:"a"`
+}
+
+func (*mcpDescribedNested) JonsonFieldDescriptions() map[string]string {
+	return map[string]string{"A": "nested comment"}
+}
+
+type mcpDescribedParams struct {
+	Params
+	Name   string             `json:"name"`
+	Tagged string             `json:"tagged" description:"from tag"`
+	Nested mcpDescribedNested `json:"nested"`
+}
+
+func (*mcpDescribedParams) JonsonFieldDescriptions() map[string]string {
+	return map[string]string{"Name": "from comment", "Tagged": "ignored, the tag wins"}
+}
+
+func TestMcpInputSchemaFieldDescriber(t *testing.T) {
+	got, _ := json.Marshal(mcpInputSchema(reflect.TypeFor[mcpDescribedParams]()))
+	want := `{"additionalProperties":false,"properties":{` +
+		`"name":{"description":"from comment","type":"string"},` +
+		`"nested":{"additionalProperties":false,"properties":{"a":{"description":"nested comment","type":"string"}},"required":["a"],"type":"object"},` +
+		`"tagged":{"description":"from tag","type":"string"}},` +
+		`"required":["name","tagged","nested"],"type":"object"}`
+	if string(got) != want {
+		t.Errorf("schema =\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestMcpInputSchema(t *testing.T) {
 	got, _ := json.Marshal(mcpInputSchema(reflect.TypeFor[mcpSchemaParams]()))
 	want := `{"additionalProperties":false,"properties":{` +
