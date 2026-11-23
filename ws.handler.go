@@ -101,6 +101,9 @@ type WSClient struct {
 	// done is closed once writer() returns upon a closed connection.
 	// This allows sending goroutine to ublock and exit.
 	done chan struct{}
+	// readerDone is closed once reader() returns, so writer() stops
+	// right away instead of waiting for the next failing ping.
+	readerDone chan struct{}
 }
 
 func NewWSClient(ws *WebsocketHandler, methodHandler *MethodHandler, conn *websocket.Conn, r *http.Request) *WSClient {
@@ -111,6 +114,7 @@ func NewWSClient(ws *WebsocketHandler, methodHandler *MethodHandler, conn *webso
 		httpRequest:   r,
 		send:          make(chan []byte, 512),
 		done:          make(chan struct{}),
+		readerDone:    make(chan struct{}),
 	}
 }
 
@@ -131,7 +135,10 @@ func (w *WSClient) sendMessage(b []byte) {
 
 // reader reads incoming messages from the websocket connection and processes them.
 func (w *WSClient) reader() {
-	defer w.conn.Close()
+	defer func() {
+		w.conn.Close()
+		close(w.readerDone)
+	}()
 
 	w.conn.SetReadLimit(w.ws.options.MaxMessageSize)
 	w.conn.SetReadDeadline(time.Now().Add(w.ws.options.PongWait))
@@ -211,6 +218,9 @@ func (w *WSClient) writer() {
 				}
 				return
 			}
+
+		case <-w.readerDone:
+			return
 
 		case <-ticker.C:
 			w.conn.SetWriteDeadline(time.Now().Add(w.ws.options.WriteWait))
