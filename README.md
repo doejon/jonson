@@ -419,6 +419,22 @@ In case of MissingValidationLevelIgnore, the validation on rpc params will be ig
 In case of MissingValidationLevelFatal, the application will panic during startup. All other states will log to the logger
 according to their level (info, warn, error).
 
+To enforce that `JonsonValidate()` covers every param field, set `MissingFieldValidationLevel` (defaults to ignore).
+At registration, jonson validates a zero value of each param struct and reports all json fields never passed to `v.Path()`.
+Use the unconditional `Check` / `Skip` so fields are seen even when valid:
+
+```go
+func (p *SubmitV1Params) JonsonValidate(v *jonson.Validator) {
+	v.Path("name").Check(p.Name != "", "name is required")
+	v.Path("age").Code(4221).Check(p.Age >= 0, "age must be zero or greater")
+	v.Path("marketing").Skip()
+	v.Path("address").Validate(&p.Address)
+}
+```
+
+Paths inside an `if` only count when the branch runs for the zero value.
+If `JonsonValidate()` panics on a zero value (e.g. nil pointer deref), this is reported at the same level.
+
 ## Server
 
 The server implements the standard http.Handler interface.
