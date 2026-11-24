@@ -3,6 +3,7 @@ package jonson
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // ValidatedParams are parameters which have been validated before reaching the business logic.
@@ -20,6 +21,7 @@ type Validator struct {
 	errors   []*Error
 	secret   Secret
 	basePath []string
+	touched  map[string]struct{} // top-level paths referenced via Path()
 
 	*Context
 }
@@ -33,6 +35,7 @@ func NewValidator(ctx *Context, secret Secret, basePath ...string) *Validator {
 		errors:   []*Error{},
 		secret:   secret,
 		basePath: basePath,
+		touched:  map[string]struct{}{},
 		Context:  ctx,
 	}
 }
@@ -124,6 +127,26 @@ func (e *validatorError) Validate(validateable ValidatedParams) *Error {
 	return err
 }
 
+// Check adds message as error in case ok is false.
+// Unlike `if !ok { v.Path(...).Message(...) }`, Check always
+// marks the path as validated, which is required for
+// MethodHandlerOptions.MissingFieldValidationLevel
+func (e *validatorError) Check(ok bool, message string) *Validator {
+	if !ok {
+		return e.Message(message)
+	}
+	if e.added {
+		panic("validator: cannot add error twice")
+	}
+	e.added = true
+	return e.validator
+}
+
+// Skip explicitly marks the path as not requiring validation
+func (e *validatorError) Skip() *Validator {
+	return e.Check(true, "")
+}
+
 type validatorIndex struct {
 	index int
 }
@@ -146,6 +169,10 @@ func (e *Validator) Path(_path ...any) *validatorError {
 		default:
 			panic(fmt.Sprintf("unsupported path type: %v; string, validator.Index() are the only supported types", reflect.TypeOf(v)))
 		}
+	}
+
+	if len(convertedPaths) > 0 {
+		e.touched[convertedPaths[0]] = struct{}{}
 	}
 
 	return &validatorError{
@@ -179,4 +206,53 @@ func Validate(
 	collector := NewValidator(ctx, secret, basePath...)
 	validateable.JonsonValidate(collector)
 	return collector.Error()
+}
+
+// jsonFieldNames returns the json names of all exported fields of struct t,
+// flattening embedded structs without json tag (e.g. jonson.Params)
+func jsonFieldNames(t reflect.Type) []string {
+	out := []string{}
+	for f := range t.Fields() {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if f.Anonymous && name == "" {
+			ft := f.Type
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if ft.Kind() == reflect.Struct {
+				out = append(out, jsonFieldNames(ft)...)
+				continue
+			}
+		}
+		if !f.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// unvalidatedFields runs JonsonValidate on a zero value of t (struct type)
+// and returns all json fields which have not been referenced via Path().
+// Only unconditional calls (Check, Skip, Validate) are guaranteed to be seen.
+func unvalidatedFields(ctx *Context, secret Secret, t reflect.Type) (missing []string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("JonsonValidate panicked on zero value: %v", r)
+		}
+	}()
+	v := NewValidator(ctx, secret)
+	reflect.New(t).Interface().(ValidatedParams).JonsonValidate(v)
+	for _, name := range jsonFieldNames(t) {
+		if _, ok := v.touched[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	return missing, nil
 }

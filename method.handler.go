@@ -2,6 +2,7 @@ package jonson
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,6 +129,10 @@ var validMissingValidationLevel = map[MissingValidationLevel]struct{}{
 
 type MethodHandlerOptions struct {
 	MissingValidationLevel MissingValidationLevel
+	// MissingFieldValidationLevel enforces that JonsonValidate references every
+	// param field via v.Path() (e.g. Check, Skip, Validate). Checked once at
+	// registration by validating a zero value. Defaults to ignore.
+	MissingFieldValidationLevel MissingValidationLevel
 	// allows you to intercept the rpc log message before it reaches the final
 	// log; This allows you to e.g. hide parameters
 	RpcRequestLogInfoInterceptor func(info *RpcRequestLogInfo) *RpcRequestLogInfo
@@ -152,6 +157,9 @@ func NewMethodHandler(
 
 	if _, ok := validMissingValidationLevel[opts.MissingValidationLevel]; !ok {
 		opts.MissingValidationLevel = MissingValidationLevelInfo
+	}
+	if _, ok := validMissingValidationLevel[opts.MissingFieldValidationLevel]; !ok {
+		opts.MissingFieldValidationLevel = MissingValidationLevelIgnore
 	}
 	if opts.RpcRequestLogInfoInterceptor == nil {
 		// by default, forward log info as is
@@ -192,6 +200,24 @@ func (m *MethodHandler) getLogger(ctx *Context) (out *slog.Logger) {
 	}()
 	out = RequireLogger(ctx)
 	return out
+}
+
+// report logs or panics with msg depending on level
+func (m *MethodHandler) report(level MissingValidationLevel, msg string) {
+	switch level {
+	case MissingValidationLevelIgnore:
+		// do nothing
+	case MissingValidationLevelInfo:
+		m.getLogger(nil).Info(msg)
+	case MissingValidationLevelWarn:
+		m.getLogger(nil).Warn(msg)
+	case MissingValidationLevelError:
+		m.getLogger(nil).Error(msg)
+	case MissingValidationLevelFatal:
+		fallthrough
+	default:
+		panic(msg)
+	}
 }
 
 // GetSystem returns a system. The function will panic in
@@ -322,22 +348,16 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 			// does the param implement ValidatedParams?
 			if !rti.Implements(validatedParamsType) {
 				// not implemented
-				errStr := endpoint + "'s param '" + rti.String() + "' does not implement 'JonsonValidate(v *jonson.Validator)' method;\n"
-				switch m.opts.MissingValidationLevel {
-				case MissingValidationLevelIgnore:
-					// do nothing
-				case MissingValidationLevelInfo:
-					m.getLogger(nil).Info(errStr)
-				case MissingValidationLevelWarn:
-					m.getLogger(nil).Warn(errStr)
-				case MissingValidationLevelError:
-					m.getLogger(nil).Error(errStr)
-				case MissingValidationLevelFatal:
-					fallthrough
-				default:
-					panic(errStr)
+				m.report(m.opts.MissingValidationLevel, endpoint+"'s param '"+rti.String()+"' does not implement 'JonsonValidate(v *jonson.Validator)' method;\n")
+			} else if m.opts.MissingFieldValidationLevel != MissingValidationLevelIgnore {
+				ctx := NewContext(context.Background(), m.factory, m)
+				missing, err := unvalidatedFields(ctx, m.errorEncoder, rti.Elem())
+				ctx.Finalize(nil)
+				if err != nil {
+					m.report(m.opts.MissingFieldValidationLevel, endpoint+"'s param '"+rti.String()+"' could not be checked for field validation: "+err.Error()+"\n")
+				} else if len(missing) > 0 {
+					m.report(m.opts.MissingFieldValidationLevel, endpoint+"'s param '"+rti.String()+"' does not validate fields: "+strings.Join(missing, ", ")+"; use v.Path(field).Check() or .Skip()\n")
 				}
-
 			}
 
 			argPosParams = i
