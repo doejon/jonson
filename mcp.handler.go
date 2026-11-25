@@ -322,9 +322,7 @@ func (h *McpHandler) callTool(w http.ResponseWriter, req *http.Request, msg *Rpc
 	tool, ok := h.toolsByName[params.Name]
 	if !ok {
 		// an unknown tool is a protocol error, not a tool error
-		return NewRpcErrorResponse(msg.ID, ErrInvalidParams.CloneWithData(&ErrorData{
-			Debug: "unknown tool: " + params.Name,
-		}))
+		return NewRpcErrorResponse(msg.ID, ErrInvalidParams)
 	}
 	if len(params.Arguments) == 0 || string(params.Arguments) == "null" {
 		params.Arguments = json.RawMessage("{}")
