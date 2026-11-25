@@ -1,6 +1,7 @@
 package jonson
 
 import (
+	"encoding"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -8,18 +9,23 @@ import (
 )
 
 var (
-	typeTime        = reflect.TypeFor[time.Time]()
-	typeRawMessage  = reflect.TypeFor[json.RawMessage]()
-	typeJsonNumber  = reflect.TypeFor[json.Number]()
-	typeAllowFields = reflect.TypeFor[AllowUnknownFieldsParams]()
-	typeDescriber   = reflect.TypeFor[FieldDescriber]()
+	typeTime              = reflect.TypeFor[time.Time]()
+	typeRawMessage        = reflect.TypeFor[json.RawMessage]()
+	typeJsonNumber        = reflect.TypeFor[json.Number]()
+	typeAllowFields       = reflect.TypeFor[AllowUnknownFieldsParams]()
+	typeFieldDescriptions = reflect.TypeFor[FieldDescriber]()
+	typeJsonCodec         = []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[json.Unmarshaler]()}
+	typeTextCodec         = []reflect.Type{reflect.TypeFor[encoding.TextMarshaler](), reflect.TypeFor[encoding.TextUnmarshaler]()}
 )
 
-// FieldDescriber is implemented by structs whose fields are documented, e.g. by
-// jonson-generate, which turns field comments into JonsonFieldDescriptions.
-// Descriptions are keyed by Go field name; a `description:"..."` tag takes precedence.
-type FieldDescriber interface {
-	JonsonFieldDescriptions() map[string]string
+// implementsAny reports whether t or *t implements one of the interfaces.
+func implementsAny(t reflect.Type, ifaces []reflect.Type) bool {
+	for _, i := range ifaces {
+		if t.Implements(i) || reflect.PointerTo(t).Implements(i) {
+			return true
+		}
+	}
+	return false
 }
 
 // mcpInputSchema returns the JSON Schema of a method's params type; nil means no params.
@@ -34,10 +40,29 @@ func mcpInputSchema(params reflect.Type) map[string]any {
 		return map[string]any{"type": "object"}
 	}
 	strict := !reflect.PointerTo(params).Implements(typeAllowFields) && !params.Implements(typeAllowFields)
-	return jsonSchemaOf(params, strict, map[reflect.Type]bool{})
+	return jsonSchemaOf(params, schemaMode{strict: strict}, map[reflect.Type]bool{})
 }
 
-func jsonSchemaOf(t reflect.Type, strict bool, seen map[reflect.Type]bool) map[string]any {
+// mcpOutputSchema returns the JSON Schema of a method's result type; nil means no result.
+// It describes what encoding/json writes: a field without omitempty or omitzero is always
+// present, and nil pointers, slices and maps are written as null.
+// ponytail: nil elements inside slices and maps ([]*T) are not marked nullable; add it when a tool returns them.
+func mcpOutputSchema(result reflect.Type) map[string]any {
+	if result == nil {
+		return nil
+	}
+	return jsonSchemaOf(result, schemaMode{output: true}, map[reflect.Type]bool{})
+}
+
+// schemaMode tells jsonSchemaOf whether it describes params (input) or a result (output).
+type schemaMode struct {
+	// strict rejects unknown object fields
+	strict bool
+	// output describes encoded values instead of accepted ones
+	output bool
+}
+
+func jsonSchemaOf(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool) map[string]any {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
@@ -48,6 +73,13 @@ func jsonSchemaOf(t reflect.Type, strict bool, seen map[reflect.Type]bool) map[s
 		return map[string]any{}
 	case typeJsonNumber:
 		return map[string]any{"type": "number"}
+	}
+	// custom encodings decide their own shape, which reflection can't see
+	if implementsAny(t, typeJsonCodec) {
+		return map[string]any{}
+	}
+	if implementsAny(t, typeTextCodec) {
+		return map[string]any{"type": "string"}
 	}
 	switch t.Kind() {
 	case reflect.String:
@@ -64,9 +96,9 @@ func jsonSchemaOf(t reflect.Type, strict bool, seen map[reflect.Type]bool) map[s
 			// encoding/json encodes []byte as base64
 			return map[string]any{"type": "string"}
 		}
-		return map[string]any{"type": "array", "items": jsonSchemaOf(t.Elem(), strict, seen)}
+		return map[string]any{"type": "array", "items": jsonSchemaOf(t.Elem(), mode, seen)}
 	case reflect.Map:
-		return map[string]any{"type": "object", "additionalProperties": jsonSchemaOf(t.Elem(), strict, seen)}
+		return map[string]any{"type": "object", "additionalProperties": jsonSchemaOf(t.Elem(), mode, seen)}
 	case reflect.Struct:
 		if seen[t] {
 			// recursive type: stop here instead of looping
@@ -76,12 +108,12 @@ func jsonSchemaOf(t reflect.Type, strict bool, seen map[reflect.Type]bool) map[s
 		defer delete(seen, t)
 		props := map[string]any{}
 		required := []string{}
-		addStructFields(t, strict, seen, props, &required)
+		addStructFields(t, mode, seen, props, &required)
 		out := map[string]any{"type": "object", "properties": props}
 		if len(required) > 0 {
 			out["required"] = required
 		}
-		if strict {
+		if mode.strict {
 			out["additionalProperties"] = false
 		}
 		return out
@@ -91,9 +123,9 @@ func jsonSchemaOf(t reflect.Type, strict bool, seen map[reflect.Type]bool) map[s
 	}
 }
 
-func addStructFields(t reflect.Type, strict bool, seen map[reflect.Type]bool, props map[string]any, required *[]string) {
+func addStructFields(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool, props map[string]any, required *[]string) {
 	var descriptions map[string]string
-	if reflect.PointerTo(t).Implements(typeDescriber) {
+	if reflect.PointerTo(t).Implements(typeFieldDescriptions) {
 		descriptions = reflect.New(t).Interface().(FieldDescriber).JonsonFieldDescriptions()
 	}
 	for i := range t.NumField() {
@@ -111,7 +143,7 @@ func addStructFields(t reflect.Type, strict bool, seen map[reflect.Type]bool, pr
 				ft = ft.Elem()
 			}
 			if ft.Kind() == reflect.Struct {
-				addStructFields(ft, strict, seen, props, required)
+				addStructFields(ft, mode, seen, props, required)
 				continue
 			}
 		}
@@ -122,7 +154,7 @@ func addStructFields(t reflect.Type, strict bool, seen map[reflect.Type]bool, pr
 			name = f.Name
 		}
 
-		schema := jsonSchemaOf(f.Type, strict, seen)
+		schema := jsonSchemaOf(f.Type, mode, seen)
 		if tagHasOption(opts, "string") {
 			schema = map[string]any{"type": "string"}
 		}
@@ -132,7 +164,18 @@ func addStructFields(t reflect.Type, strict bool, seen map[reflect.Type]bool, pr
 			schema["description"] = d
 		}
 		props[name] = schema
-		if !tagHasOption(opts, "omitempty") && !tagHasOption(opts, "omitzero") {
+		omittable := tagHasOption(opts, "omitempty") || tagHasOption(opts, "omitzero")
+		nilable := f.Type.Kind() == reflect.Pointer || f.Type.Kind() == reflect.Slice || f.Type.Kind() == reflect.Map
+		switch {
+		case omittable:
+		case mode.output:
+			// always written, as null when nil
+			*required = append(*required, name)
+			if typ, ok := schema["type"].(string); ok && nilable {
+				schema["type"] = []string{typ, "null"}
+			}
+		case !nilable:
+			// a missing pointer, slice or map decodes to nil, so the server accepts it
 			*required = append(*required, name)
 		}
 	}

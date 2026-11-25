@@ -79,6 +79,9 @@ In order to expose the endpoints properly, we need to follow a naming scheme:
 `<MethodName>V<version>`.
 
 A remote procedure call accepts parameters (optional) and returns a result (optional) _or_ an error.
+The result is always a pointer to a struct, so that every response is a JSON object: a method returns either
+`error` or `(*Result, error)`. Registering a method with any other result type (slice, map, primitive, struct value)
+panics at startup, and returning `nil, nil` from a `(*Result, error)` method is an internal error.
 
 To detect parameters which need to be marshaled/unmarshaled during the request,
 add a `jonson.Params` interface within your parameters which you will be sending.
@@ -510,18 +513,50 @@ so `Expose(account.GetProfileV1, "custom description").ExposeSystem(account)` ke
 
 - Tool names replace `/` and `.` with `_`: `account/get-profile.v1` becomes `account_get-profile_v1`.
 - The `inputSchema` of a tool is built from the params struct: `json` tags give the names, fields without
-  `omitempty` or `omitzero` are required, and a `description:"..."` tag documents a field for the model.
+  `omitempty` or `omitzero` are required, except pointers, slices and maps (missing ones decode to nil), and a `description:"..."` tag documents a field for the model.
   Without a tag, the field's code comment is used: `jonson-generate` writes the comments of all exported
   structs into `jonson.descriptions.gen.go` (as `JonsonFieldDescriptions`, see `jonson.FieldDescriber`).
   Unknown fields are rejected unless the params implement `AllowUnknownFieldsParams`.
-- A successful call returns the result as `structuredContent` (if it is a JSON object) and as text.
+- A successful call returns the result as `structuredContent` and as text. The text is the result's JSON, unless the
+  result implements `jonson.McpTextSummarizer`: then `JonsonMcpTextContent()` gives a short summary for the model
+  instead, so the data is not sent twice:
+
+  ```go
+  func (r *GetProfileV1Result) JonsonMcpTextContent() string {
+    return "Profile of " + r.Name
+  }
+  ```
+
+  To find tools without a summary, set `McpHandlerOpts.MissingTextSummarizerLevel` (`info`, `warn`, `error` or
+  `fatal`, like `MissingValidationLevel`). Each exposed method whose result lacks `JonsonMcpTextContent` is then
+  reported when it is exposed. It defaults to `ignore`.
+
+  The tool's `outputSchema` is built from the method's result type, like the `inputSchema` from the params;
+  a method returning only `error` has none. Types with their own
+  `MarshalJSON` accept any value in both schemas, and types with `MarshalText` are strings.
   A failed call, including a validation error, returns `isError: true` with the jonson error as text, so that
   the model can correct its arguments.
-- The transport is stateless streamable HTTP: one JSON-RPC message per `POST`, answered with `application/json`.
+- The handler speaks MCP `2026-07-28` only (`jonson.McpProtocolVersion`): `server/discover`, `tools/list` and `tools/call`.
+  Every request carries its protocol version in `_meta` and the `MCP-Protocol-Version`, `Mcp-Method` (and for
+  `tools/call` `Mcp-Name`) headers; a mismatch is rejected with `400`. Older clients, which open with `initialize`,
+  get an `UnsupportedProtocolVersion` error naming the supported version.
+- The transport is streamable HTTP: one JSON-RPC message per `POST`, answered with `application/json`.
   There are no sessions and no server-sent events (`GET` returns 405), so any replica can answer any call.
-  The handler supports `initialize`, `ping`, `tools/list` and `tools/call`.
 - Requests with an `Origin` header are only served if its host matches the request's host (protection against
   DNS rebinding). Set `McpHandlerOpts.AllowOrigin` to allow other origins.
+
+## Hooks
+
+Params, results and systems change how jonson treats them by implementing optional methods prefixed with
+`Jonson`. All hook interfaces are declared in [`hooks.go`](hooks.go).
+
+| Method | Implemented on | Interface | Effect |
+|---|---|---|---|
+| `JonsonValidate(*Validator)` | params | `ValidatedParams` | validates params before the method runs |
+| `JonsonAllowUnknownFields()` | params | `AllowUnknownFieldsParams` | accepts fields the params don't declare |
+| `JonsonFieldDescriptions()` | params and result structs (generated) | `FieldDescriber` | describes fields in the MCP `inputSchema` and `outputSchema` |
+| `JonsonMcpTextContent()` | result | `McpTextSummarizer` | gives a short text summary of a tool result for the model |
+| `JonsonMethodDescriptions()` | system (generated) | `MethodDescriber` | gives MCP tool descriptions |
 
 ## Secret
 

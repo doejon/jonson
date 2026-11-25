@@ -1,6 +1,7 @@
 package jonson
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,8 +14,9 @@ import (
 	"strings"
 )
 
-// McpProtocolVersions lists the MCP protocol versions the McpHandler speaks, newest first.
-var McpProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
+// McpProtocolVersion is the only MCP protocol version the McpHandler speaks.
+// Older, initialize-based versions are rejected with an UnsupportedProtocolVersion error.
+const McpProtocolVersion = "2026-07-28"
 
 var errMcpInvalidRequest = &Error{Code: -32600, Message: "Invalid Request"}
 
@@ -22,9 +24,9 @@ var errMcpInvalidRequest = &Error{Code: -32600, Message: "Invalid Request"}
 // MCP is JSON-RPC 2.0, so a tool call runs the method through the same pipeline as
 // every other handler: providers, validation, logging and error encoding.
 //
-// The transport is stateless streamable HTTP: each POST carries one JSON-RPC
-// message and is answered with application/json. There are no sessions and no
-// server-sent events, so any replica can answer any call.
+// The transport is streamable HTTP: each POST carries one JSON-RPC message and is
+// answered with application/json. MCP is stateless: every request carries its
+// protocol version in _meta, so any replica can answer any call.
 // Only methods passed to Expose become tools.
 type McpHandler struct {
 	path          string
@@ -39,23 +41,31 @@ type McpHandlerOpts struct {
 	// Limits max bytes to be read.
 	// In case MaxBytes is set to bytes <= 0, MaxBytes will be ignored
 	MaxBytes int64
-	// Name and Version are returned as serverInfo on initialize.
+	// Name and Version are returned as serverInfo in every result.
 	Name    string
 	Version string
-	// Instructions are returned on initialize and tell the model how to use the tools.
+	// Instructions are returned on server/discover and tell the model how to use the tools.
 	Instructions string
 	// AllowOrigin decides whether a request with an Origin header is served.
 	// MCP requires servers to validate Origin against DNS rebinding.
 	// By default, only an Origin whose host equals the request's Host is allowed.
 	// Requests without an Origin header (non-browser clients) are always served.
 	AllowOrigin func(origin string, req *http.Request) bool
+	// MissingTextSummarizerLevel reports exposed tools whose result does not implement
+	// McpTextSummarizer, so that the result is sent twice (as text and as structuredContent).
+	// Checked when a method is exposed, like MethodHandlerOptions.MissingValidationLevel.
+	// Defaults to ignore.
+	MissingTextSummarizerLevel MissingValidationLevel
 }
 
 type mcpTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
-	method      string
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	method       string
+	// result is the method's result type; nil for methods returning only an error
+	result reflect.Type
 }
 
 // NewMcpHandler returns a handler that serves MCP on path.
@@ -64,18 +74,37 @@ func NewMcpHandler(methodHandler *MethodHandler, path string) *McpHandler {
 		path:          path,
 		methodHandler: methodHandler,
 		opts: &McpHandlerOpts{
-			MaxBytes: 5e6,
-			Name:     "jonson",
+			MaxBytes:                   5e6,
+			Name:                       "jonson",
+			MissingTextSummarizerLevel: MissingValidationLevelIgnore,
 		},
 		toolsByName: map[string]*mcpTool{},
 	}
 }
 
-// WithOpts sets the mcp handler opts
+// WithOpts sets the mcp handler opts. Tools exposed before are checked
+// against the new MissingTextSummarizerLevel.
 func (h *McpHandler) WithOpts(opts *McpHandlerOpts) *McpHandler {
+	if _, ok := validMissingValidationLevel[opts.MissingTextSummarizerLevel]; !ok {
+		opts.MissingTextSummarizerLevel = MissingValidationLevelIgnore
+	}
 	h.opts = opts
+	for _, tool := range h.tools {
+		h.checkTextSummarizer(tool)
+	}
 	return h
 }
+
+// checkTextSummarizer reports a tool whose result does not summarize itself.
+func (h *McpHandler) checkTextSummarizer(tool *mcpTool) {
+	if tool.result == nil || tool.result.Implements(typeMcpTextSummarizer) {
+		return
+	}
+	h.methodHandler.report(h.opts.MissingTextSummarizerLevel, "mcp handler: "+tool.method+"'s result '"+tool.result.String()+
+		"' does not implement 'JonsonMcpTextContent() string' method; the tool result is sent twice\n")
+}
+
+var typeMcpTextSummarizer = reflect.TypeFor[McpTextSummarizer]()
 
 // McpToolName returns the tool name of a method: system/method.v1 becomes system_method_v1.
 // MCP clients only accept [a-zA-Z0-9_-] in tool names.
@@ -134,13 +163,6 @@ func (h *McpHandler) exposeWhere(match func(e *apiEndpoint) bool) *McpHandler {
 	return h
 }
 
-// MethodDescriber is implemented by systems whose methods are documented, e.g. by
-// jonson-generate, which turns method doc comments into JonsonMethodDescriptions.
-// Descriptions are keyed by endpoint name, such as "account/get-profile.v1".
-type MethodDescriber interface {
-	JonsonMethodDescriptions() map[string]string
-}
-
 // methodValueName returns the endpoint name of a method value, e.g. "account/get-profile.v1"
 // for account.GetProfileV1, derived from the symbol the compiler gives it: "pkg.(*Account).GetProfileV1-fm".
 func methodValueName(fn any) (string, bool) {
@@ -193,12 +215,20 @@ func (h *McpHandler) ExposeMethod(method string, description ...string) *McpHand
 	if _, exists := h.toolsByName[name]; exists {
 		panic("mcp handler: method " + method + " is already exposed")
 	}
-	tool := &mcpTool{
-		Name:        name,
-		Description: desc,
-		InputSchema: mcpInputSchema(endpoint.paramsType),
-		method:      method,
+	// methods return (result, error) or just error
+	var resultType reflect.Type
+	if ft := endpoint.handlerFunc.Type(); ft.NumOut() == 2 {
+		resultType = ft.Out(0)
 	}
+	tool := &mcpTool{
+		Name:         name,
+		Description:  desc,
+		InputSchema:  mcpInputSchema(endpoint.paramsType),
+		OutputSchema: mcpOutputSchema(resultType),
+		method:       method,
+		result:       resultType,
+	}
+	h.checkTextSummarizer(tool)
 	h.tools = append(h.tools, tool)
 	h.toolsByName[name] = tool
 	return h
@@ -224,73 +254,150 @@ func (h *McpHandler) Handle(w http.ResponseWriter, req *http.Request) bool {
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		h.methodHandler.getLogger(nil).Warn("mcp handler: read error", "error", err)
-		h.write(w, NewRpcErrorResponse(nil, ErrParse.Coalesce(err)))
+		h.write(w, http.StatusBadRequest, NewRpcErrorResponse(nil, ErrParse.Coalesce(err)))
 		return true
 	}
 
 	// MCP sends exactly one JSON-RPC message per POST; batches are not part of the protocol.
 	if trimmed := strings.TrimSpace(string(body)); !strings.HasPrefix(trimmed, "{") {
-		h.write(w, NewRpcErrorResponse(nil, errMcpInvalidRequest))
+		h.write(w, http.StatusBadRequest, NewRpcErrorResponse(nil, errMcpInvalidRequest))
 		return true
 	}
 
-	var msg struct {
-		RpcRequest
-		Result json.RawMessage `json:"result"`
-		Error  json.RawMessage `json:"error"`
-	}
+	var msg RpcRequest
 	if err := h.methodHandler.opts.JsonHandler.Unmarshal(body, &msg); err != nil {
-		h.write(w, NewRpcErrorResponse(nil, ErrParse))
+		h.write(w, http.StatusBadRequest, NewRpcErrorResponse(nil, ErrParse))
 		return true
 	}
-
-	// notifications (no id) and responses to server requests need no answer
-	if msg.ID == nil || msg.Method == "" {
+	// clients must not send responses: there are no server requests to answer
+	if msg.Method == "" {
+		h.write(w, http.StatusBadRequest, NewRpcErrorResponse(msg.ID, errMcpInvalidRequest))
+		return true
+	}
+	// notifications need no answer
+	if msg.ID == nil {
 		w.WriteHeader(http.StatusAccepted)
 		return true
 	}
 
-	h.write(w, h.dispatch(w, req, &msg.RpcRequest))
+	status, resp := h.dispatch(w, req, &msg)
+	h.write(w, status, resp)
 	return true
 }
 
-func (h *McpHandler) dispatch(w http.ResponseWriter, req *http.Request, msg *RpcRequest) any {
+type mcpRequestParams struct {
+	Name string `json:"name"`
+	// ProtocolVersion is only sent by legacy clients on initialize.
+	ProtocolVersion string `json:"protocolVersion"`
+	Meta            struct {
+		ProtocolVersion    string          `json:"io.modelcontextprotocol/protocolVersion"`
+		ClientCapabilities json.RawMessage `json:"io.modelcontextprotocol/clientCapabilities"`
+	} `json:"_meta"`
+}
+
+func (h *McpHandler) dispatch(w http.ResponseWriter, req *http.Request, msg *RpcRequest) (int, any) {
+	var params mcpRequestParams
+	var err error
+	if len(msg.Params) > 0 {
+		err = h.methodHandler.opts.JsonHandler.Unmarshal(msg.Params, &params)
+	}
+	// legacy clients open with initialize and have no way to fall forward;
+	// tell them which version this server speaks, even if their params don't decode
+	if msg.Method == "initialize" {
+		return http.StatusBadRequest, mcpUnsupportedVersion(msg.ID, params.ProtocolVersion)
+	}
+	if err != nil {
+		return http.StatusBadRequest, NewRpcErrorResponse(msg.ID, ErrInvalidParams)
+	}
+	// a JSON null decodes into the raw message "null"
+	if caps := params.Meta.ClientCapabilities; params.Meta.ProtocolVersion == "" || len(caps) == 0 || string(caps) == "null" {
+		return http.StatusBadRequest, NewRpcErrorResponse(msg.ID, ErrInvalidParams)
+	}
+	if req.Header.Get("MCP-Protocol-Version") != params.Meta.ProtocolVersion {
+		return http.StatusBadRequest, mcpHeaderMismatch(msg.ID, "MCP-Protocol-Version")
+	}
+	if params.Meta.ProtocolVersion != McpProtocolVersion {
+		return http.StatusBadRequest, mcpUnsupportedVersion(msg.ID, params.Meta.ProtocolVersion)
+	}
+	if req.Header.Get("Mcp-Method") != msg.Method {
+		return http.StatusBadRequest, mcpHeaderMismatch(msg.ID, "Mcp-Method")
+	}
+
 	switch msg.Method {
-	case "initialize":
-		return h.initialize(msg)
-	case "ping":
-		return NewRpcResultResponse(msg.ID, struct{}{})
+	case "server/discover":
+		result := map[string]any{
+			"supportedVersions": []string{McpProtocolVersion},
+			"capabilities":      map[string]any{"tools": map[string]any{}},
+			"ttlMs":             mcpCacheTTLMs,
+			"cacheScope":        "public",
+		}
+		if h.opts.Instructions != "" {
+			result["instructions"] = h.opts.Instructions
+		}
+		return http.StatusOK, h.complete(msg.ID, result)
 	case "tools/list":
-		return NewRpcResultResponse(msg.ID, map[string]any{"tools": h.toolList()})
+		return http.StatusOK, h.complete(msg.ID, map[string]any{
+			"tools":      h.toolList(),
+			"ttlMs":      mcpCacheTTLMs,
+			"cacheScope": "public",
+		})
 	case "tools/call":
-		return h.callTool(w, req, msg)
+		if name, ok := mcpDecodeHeader(req.Header.Get("Mcp-Name")); !ok || name != params.Name {
+			return http.StatusBadRequest, mcpHeaderMismatch(msg.ID, "Mcp-Name")
+		}
+		return http.StatusOK, h.callTool(w, req, msg)
 	default:
-		return NewRpcErrorResponse(msg.ID, ErrMethodNotFound)
+		return http.StatusNotFound, NewRpcErrorResponse(msg.ID, ErrMethodNotFound)
 	}
 }
 
-func (h *McpHandler) initialize(msg *RpcRequest) any {
-	var params struct {
-		ProtocolVersion string `json:"protocolVersion"`
+// mcpCacheTTLMs tells clients how long they may cache tools/list and server/discover.
+// ponytail: fixed 5 minutes, the tool set only changes on deploy; make it an option if that is too long.
+const mcpCacheTTLMs = 300_000
+
+// complete marks result as final and identifies the server, as every MCP result must.
+func (h *McpHandler) complete(id json.RawMessage, result map[string]any) any {
+	result["resultType"] = "complete"
+	result["_meta"] = map[string]any{
+		"io.modelcontextprotocol/serverInfo": map[string]any{"name": h.opts.Name, "version": h.opts.Version},
 	}
-	if len(msg.Params) > 0 {
-		if err := h.methodHandler.opts.JsonHandler.Unmarshal(msg.Params, &params); err != nil {
-			return NewRpcErrorResponse(msg.ID, ErrInvalidParams)
-		}
+	return NewRpcResultResponse(id, result)
+}
+
+// mcpErrorResponse is an RpcErrorResponse whose data is not jonson's ErrorData.
+type mcpErrorResponse struct {
+	RpcResponseHeader
+	Error struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    any    `json:"data,omitempty"`
+	} `json:"error"`
+}
+
+func mcpUnsupportedVersion(id json.RawMessage, requested string) any {
+	resp := &mcpErrorResponse{RpcResponseHeader: NewRpcResponseHeader(id)}
+	resp.Error.Code = -32022
+	resp.Error.Message = "Unsupported protocol version: this server speaks MCP " + McpProtocolVersion
+	resp.Error.Data = map[string]any{"supported": []string{McpProtocolVersion}, "requested": requested}
+	return resp
+}
+
+func mcpHeaderMismatch(id json.RawMessage, header string) any {
+	return NewRpcErrorResponse(id, &Error{Code: -32020, Message: "Header mismatch: " + header + " header is missing or does not match the request body"})
+}
+
+// mcpDecodeHeader decodes a header value that clients may send as =?base64?...?=.
+func mcpDecodeHeader(v string) (string, bool) {
+	enc, ok := strings.CutPrefix(v, "=?base64?")
+	if !ok {
+		return v, true
 	}
-	version := McpProtocolVersions[0]
-	if slices.Contains(McpProtocolVersions, params.ProtocolVersion) {
-		version = params.ProtocolVersion
+	enc, ok = strings.CutSuffix(enc, "?=")
+	if !ok {
+		return "", false
 	}
-	result := map[string]any{
-		"protocolVersion": version,
-		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-		"serverInfo":      map[string]any{"name": h.opts.Name, "version": h.opts.Version},
-	}
-	if h.opts.Instructions != "" {
-		result["instructions"] = h.opts.Instructions
-	}
-	return NewRpcResultResponse(msg.ID, result)
+	b, err := base64.StdEncoding.DecodeString(enc)
+	return string(b), err == nil
 }
 
 func (h *McpHandler) toolList() []*mcpTool {
@@ -303,12 +410,6 @@ func (h *McpHandler) toolList() []*mcpTool {
 type mcpContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
-}
-
-type mcpCallToolResult struct {
-	Content           []mcpContent    `json:"content"`
-	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
-	IsError           bool            `json:"isError,omitempty"`
 }
 
 func (h *McpHandler) callTool(w http.ResponseWriter, req *http.Request, msg *RpcRequest) any {
@@ -338,9 +439,9 @@ func (h *McpHandler) callTool(w http.ResponseWriter, req *http.Request, msg *Rpc
 	// a failed call is a tool result with isError, so that the model sees the error and can retry
 	if e, ok := resp.(*RpcErrorResponse); ok {
 		text, _ := h.methodHandler.opts.JsonHandler.Marshal(e.Error)
-		return NewRpcResultResponse(msg.ID, &mcpCallToolResult{
-			Content: []mcpContent{{Type: "text", Text: string(text)}},
-			IsError: true,
+		return h.complete(msg.ID, map[string]any{
+			"content": []mcpContent{{Type: "text", Text: string(text)}},
+			"isError": true,
 		})
 	}
 
@@ -354,18 +455,22 @@ func (h *McpHandler) callTool(w http.ResponseWriter, req *http.Request, msg *Rpc
 			Debug: h.methodHandler.errorEncoder.Encode(err.Error()),
 		}))
 	}
-	out := &mcpCallToolResult{Content: []mcpContent{{Type: "text", Text: string(b)}}}
-	// structuredContent must be a JSON object
-	if len(b) > 0 && b[0] == '{' {
-		out.StructuredContent = b
+	text := string(b)
+	if t, ok := result.(McpTextSummarizer); ok {
+		text = t.JonsonMcpTextContent()
 	}
-	return NewRpcResultResponse(msg.ID, out)
+	out := map[string]any{"content": []mcpContent{{Type: "text", Text: text}}}
+	// a method returning only an error has no structuredContent
+	if string(b) != "null" {
+		out["structuredContent"] = json.RawMessage(b)
+	}
+	return h.complete(msg.ID, out)
 }
 
-func (h *McpHandler) write(w http.ResponseWriter, resp any) {
+func (h *McpHandler) write(w http.ResponseWriter, status int, resp any) {
 	b, _ := h.methodHandler.opts.JsonHandler.Marshal(resp)
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	_, _ = w.Write(b)
 }
 

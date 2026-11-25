@@ -6,17 +6,6 @@ import (
 	"strings"
 )
 
-// ValidatedParams are parameters which have been validated before reaching the business logic.
-// Make sure you do keep the validation to static data analysis and do not integrate
-// any business logic validation into the validator
-type ValidatedParams interface {
-	JonsonValidate(validator *Validator)
-}
-
-type AllowUnknownFieldsParams interface {
-	JonsonAllowUnknownFields()
-}
-
 type Validator struct {
 	errors   []*Error
 	secret   Secret

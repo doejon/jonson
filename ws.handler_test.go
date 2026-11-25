@@ -26,7 +26,11 @@ type BlockV1Params struct {
 	Params
 }
 
-func (s *WsTestSystem) BlockV1(ctx *Context, params *BlockV1Params) (bool, error) {
+type BlockV1Result struct {
+	Released bool `json:"released"`
+}
+
+func (s *WsTestSystem) BlockV1(ctx *Context, params *BlockV1Params) (*BlockV1Result, error) {
 	n := s.inFlight.Add(1)
 	defer s.inFlight.Add(-1)
 	for {
@@ -36,7 +40,7 @@ func (s *WsTestSystem) BlockV1(ctx *Context, params *BlockV1Params) (bool, error
 		}
 	}
 	<-s.release
-	return true, nil
+	return &BlockV1Result{Released: true}, nil
 }
 
 type wsTestEnv struct {
