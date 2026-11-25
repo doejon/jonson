@@ -532,8 +532,9 @@ so `Expose(account.GetProfileV1, "custom description").ExposeSystem(account)` ke
   reported when it is exposed. It defaults to `ignore`.
 
   The tool's `outputSchema` is built from the method's result type, like the `inputSchema` from the params;
-  a method returning only `error` has none. Types with their own
-  `MarshalJSON` accept any value in both schemas, and types with `MarshalText` are strings.
+  a method returning only `error` has none. Types that decode themselves (`UnmarshalJSON`) accept any value in the
+  `inputSchema`, types that encode themselves (`MarshalJSON`) any value in the `outputSchema`; with `UnmarshalText`
+  or `MarshalText` they are strings.
   A failed call, including a validation error, returns `isError: true` with the jonson error as text, so that
   the model can correct its arguments.
 - The handler speaks MCP `2026-07-28` only (`jonson.McpProtocolVersion`): `server/discover`, `tools/list` and `tools/call`.
@@ -542,8 +543,15 @@ so `Expose(account.GetProfileV1, "custom description").ExposeSystem(account)` ke
   get an `UnsupportedProtocolVersion` error naming the supported version.
 - The transport is streamable HTTP: one JSON-RPC message per `POST`, answered with `application/json`.
   There are no sessions and no server-sent events (`GET` returns 405), so any replica can answer any call.
-- Requests with an `Origin` header are only served if its host matches the request's host (protection against
-  DNS rebinding). Set `McpHandlerOpts.AllowOrigin` to allow other origins.
+- Requests with an `Origin` header, which browsers always send, are forbidden unless `McpHandlerOpts.AllowOrigin`
+  allows the origin (protection against DNS rebinding). Clients outside a browser send no `Origin` and are served.
+  To serve a browser-based client, allow its origin:
+
+  ```go
+  jonson.NewMcpHandler(methodHandler, "/mcp").WithOpts(&jonson.McpHandlerOpts{
+    AllowOrigin: func(origin string, _ *http.Request) bool { return origin == "https://app.example.com" },
+  })
+  ```
 
 ## Hooks
 

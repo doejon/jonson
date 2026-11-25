@@ -14,18 +14,15 @@ var (
 	typeJsonNumber        = reflect.TypeFor[json.Number]()
 	typeAllowFields       = reflect.TypeFor[AllowUnknownFieldsParams]()
 	typeFieldDescriptions = reflect.TypeFor[FieldDescriber]()
-	typeJsonCodec         = []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[json.Unmarshaler]()}
-	typeTextCodec         = []reflect.Type{reflect.TypeFor[encoding.TextMarshaler](), reflect.TypeFor[encoding.TextUnmarshaler]()}
+	typeJsonMarshaler     = reflect.TypeFor[json.Marshaler]()
+	typeJsonUnmarshaler   = reflect.TypeFor[json.Unmarshaler]()
+	typeTextMarshaler     = reflect.TypeFor[encoding.TextMarshaler]()
+	typeTextUnmarshaler   = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 
-// implementsAny reports whether t or *t implements one of the interfaces.
-func implementsAny(t reflect.Type, ifaces []reflect.Type) bool {
-	for _, i := range ifaces {
-		if t.Implements(i) || reflect.PointerTo(t).Implements(i) {
-			return true
-		}
-	}
-	return false
+// implements reports whether t or *t implements iface.
+func implements(t reflect.Type, iface reflect.Type) bool {
+	return t.Implements(iface) || reflect.PointerTo(t).Implements(iface)
 }
 
 // mcpInputSchema returns the JSON Schema of a method's params type; nil means no params.
@@ -40,7 +37,12 @@ func mcpInputSchema(params reflect.Type) map[string]any {
 		return map[string]any{"type": "object"}
 	}
 	strict := !reflect.PointerTo(params).Implements(typeAllowFields) && !params.Implements(typeAllowFields)
-	return jsonSchemaOf(params, schemaMode{strict: strict}, map[reflect.Type]bool{})
+	schema := jsonSchemaOf(params, schemaMode{strict: strict}, map[reflect.Type]bool{})
+	// tool arguments are always an object, even if the params decode themselves
+	if schema["type"] != "object" {
+		return map[string]any{"type": "object"}
+	}
+	return schema
 }
 
 // mcpOutputSchema returns the JSON Schema of a method's result type; nil means no result.
@@ -51,7 +53,12 @@ func mcpOutputSchema(result reflect.Type) map[string]any {
 	if result == nil {
 		return nil
 	}
-	return jsonSchemaOf(result, schemaMode{output: true}, map[reflect.Type]bool{})
+	schema := jsonSchemaOf(result, schemaMode{output: true}, map[reflect.Type]bool{})
+	// a result that encodes itself has no known shape
+	if schema["type"] != "object" {
+		return nil
+	}
+	return schema
 }
 
 // schemaMode tells jsonSchemaOf whether it describes params (input) or a result (output).
@@ -74,11 +81,16 @@ func jsonSchemaOf(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool) m
 	case typeJsonNumber:
 		return map[string]any{"type": "number"}
 	}
-	// custom encodings decide their own shape, which reflection can't see
-	if implementsAny(t, typeJsonCodec) {
+	// custom encodings decide their own shape, which reflection can't see;
+	// encoding/json only uses the methods for its direction
+	jsonCodec, textCodec := typeJsonUnmarshaler, typeTextUnmarshaler
+	if mode.output {
+		jsonCodec, textCodec = typeJsonMarshaler, typeTextMarshaler
+	}
+	if implements(t, jsonCodec) {
 		return map[string]any{}
 	}
-	if implementsAny(t, typeTextCodec) {
+	if implements(t, textCodec) {
 		return map[string]any{"type": "string"}
 	}
 	switch t.Kind() {
@@ -92,8 +104,8 @@ func jsonSchemaOf(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool) m
 	case reflect.Float32, reflect.Float64:
 		return map[string]any{"type": "number"}
 	case reflect.Slice, reflect.Array:
-		if t.Elem().Kind() == reflect.Uint8 {
-			// encoding/json encodes []byte as base64
+		if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
+			// encoding/json encodes []byte as base64, but [N]byte as an array of numbers
 			return map[string]any{"type": "string"}
 		}
 		return map[string]any{"type": "array", "items": jsonSchemaOf(t.Elem(), mode, seen)}
@@ -108,7 +120,7 @@ func jsonSchemaOf(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool) m
 		defer delete(seen, t)
 		props := map[string]any{}
 		required := []string{}
-		addStructFields(t, mode, seen, props, &required)
+		addStructFields(t, mode, false, seen, props, &required)
 		out := map[string]any{"type": "object", "properties": props}
 		if len(required) > 0 {
 			out["required"] = required
@@ -123,7 +135,9 @@ func jsonSchemaOf(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool) m
 	}
 }
 
-func addStructFields(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool, props map[string]any, required *[]string) {
+// addStructFields adds the fields of t to props. Fields of an embedded pointer are optional:
+// encoding/json leaves them out when the pointer is nil, and doesn't need them to decode.
+func addStructFields(t reflect.Type, mode schemaMode, optional bool, seen map[reflect.Type]bool, props map[string]any, required *[]string) {
 	var descriptions map[string]string
 	if reflect.PointerTo(t).Implements(typeFieldDescriptions) {
 		descriptions = reflect.New(t).Interface().(FieldDescriber).JonsonFieldDescriptions()
@@ -143,7 +157,7 @@ func addStructFields(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool
 				ft = ft.Elem()
 			}
 			if ft.Kind() == reflect.Struct {
-				addStructFields(ft, mode, seen, props, required)
+				addStructFields(ft, mode, optional || f.Type.Kind() == reflect.Pointer, seen, props, required)
 				continue
 			}
 		}
@@ -170,11 +184,13 @@ func addStructFields(t reflect.Type, mode schemaMode, seen map[reflect.Type]bool
 		case omittable:
 		case mode.output:
 			// always written, as null when nil
-			*required = append(*required, name)
 			if typ, ok := schema["type"].(string); ok && nilable {
 				schema["type"] = []string{typ, "null"}
 			}
-		case !nilable:
+			if !optional {
+				*required = append(*required, name)
+			}
+		case !nilable && !optional:
 			// a missing pointer, slice or map decodes to nil, so the server accepts it
 			*required = append(*required, name)
 		}

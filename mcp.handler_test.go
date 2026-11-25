@@ -358,7 +358,8 @@ func TestMcpHandler_Transport(t *testing.T) {
 		{name: "broken json", method: http.MethodPost, body: `{"jsonrpc":`, wantCode: http.StatusBadRequest, wantError: ErrParse.Code},
 		{name: "GET has no event stream", method: http.MethodGet, wantCode: http.StatusMethodNotAllowed},
 		{name: "foreign origin is forbidden", method: http.MethodPost, body: list, header: append([]string{"Origin", "https://evil.example"}, listHeader...), wantCode: http.StatusForbidden},
-		{name: "same origin is served", method: http.MethodPost, body: list, header: append([]string{"Origin", "http://example.com"}, listHeader...), wantCode: http.StatusOK},
+		// DNS rebinding: Origin and Host both carry the attacker's domain
+		{name: "origin matching the host is forbidden by default", method: http.MethodPost, body: list, header: append([]string{"Origin", "http://example.com"}, listHeader...), wantCode: http.StatusForbidden},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -524,23 +525,35 @@ type mcpTextID [2]byte
 
 func (mcpTextID) MarshalText() ([]byte, error) { return []byte("id"), nil }
 
-// mcpJsonValue has its own JSON encoding
+// mcpJsonValue has its own JSON decoding only, so it is encoded by reflection
 type mcpJsonValue struct{ A int }
 
 func (*mcpJsonValue) UnmarshalJSON([]byte) error { return nil }
 
+// mcpJsonOut has its own JSON encoding only
+type mcpJsonOut struct{ B int }
+
+func (mcpJsonOut) MarshalJSON() ([]byte, error) { return []byte(`"b"`), nil }
+
+type mcpOutputBase struct {
+	BaseID string `json:"base_id"`
+}
+
 type mcpOutputResult struct {
 	mcpSchemaEmbedded
-	Name    string            `json:"name"`
-	Tags    []string          `json:"tags"`
-	Labels  map[string]string `json:"labels"`
-	Ptr     *int              `json:"ptr"`
-	Count   *int64            `json:"count,string"`
-	ID      mcpTextID         `json:"id"`
-	Custom  mcpJsonValue      `json:"custom"`
-	Note    string            `json:"note,omitempty"`
-	Child   *mcpOutputResult  `json:"child,omitempty"`
-	Skipped string            `json:"-"`
+	Name   string            `json:"name"`
+	Tags   []string          `json:"tags"`
+	Labels map[string]string `json:"labels"`
+	Ptr    *int              `json:"ptr"`
+	Count  *int64            `json:"count,string"`
+	ID     mcpTextID         `json:"id"`
+	Custom mcpJsonValue      `json:"custom"`
+	Out    mcpJsonOut        `json:"out"`
+	Hash   [2]byte           `json:"hash"`
+	*mcpOutputBase
+	Note    string           `json:"note,omitempty"`
+	Child   *mcpOutputResult `json:"child,omitempty"`
+	Skipped string           `json:"-"`
 }
 
 func TestMcpOutputSchema(t *testing.T) {
@@ -548,22 +561,54 @@ func TestMcpOutputSchema(t *testing.T) {
 		t.Errorf("schema without result = %v, want nil", s)
 	}
 	got, _ := json.Marshal(mcpOutputSchema(reflect.TypeFor[*mcpOutputResult]()))
-	// fields without omitempty are always written, nil-able ones as null; no additionalProperties
+	// fields without omitempty are always written, nil-able ones as null; no additionalProperties;
+	// only marshal methods count, [N]byte is an array, fields of an embedded pointer are optional
 	want := `{"properties":{` +
+		`"base_id":{"type":"string"},` +
 		`"child":{"type":"object"},` +
 		`"count":{"type":["string","null"]},` +
-		`"custom":{},` +
+		`"custom":{"properties":{"A":{"type":"integer"}},"required":["A"],"type":"object"},` +
+		`"hash":{"items":{"type":"integer"},"type":"array"},` +
 		`"id":{"type":"string"},` +
 		`"inline":{"type":"string"},` +
 		`"labels":{"additionalProperties":{"type":"string"},"type":["object","null"]},` +
 		`"name":{"type":"string"},` +
 		`"note":{"type":"string"},` +
+		`"out":{},` +
 		`"ptr":{"type":["integer","null"]},` +
 		`"tags":{"items":{"type":"string"},"type":["array","null"]}},` +
-		`"required":["inline","name","tags","labels","ptr","count","id","custom"],"type":"object"}`
+		`"required":["inline","name","tags","labels","ptr","count","id","custom","out","hash"],"type":"object"}`
 	if string(got) != want {
 		t.Errorf("schema =\n%s\nwant\n%s", got, want)
 	}
+
+	t.Run("input of the same types", func(t *testing.T) {
+		// only unmarshal methods count; an embedded pointer's fields are optional
+		got, _ := json.Marshal(mcpInputSchema(reflect.TypeFor[mcpOutputResult]()))
+		for _, want := range []string{
+			`"custom":{}`,
+			`"out":{"additionalProperties":false,"properties":{"B":{"type":"integer"}},"required":["B"],"type":"object"}`,
+			`"id":{"items":{"type":"integer"},"type":"array"}`,
+			`"hash":{"items":{"type":"integer"},"type":"array"}`,
+			`"required":["inline","name","id","custom","out","hash"]`,
+		} {
+			if !strings.Contains(string(got), want) {
+				t.Errorf("schema = %s\nwant it to contain %s", got, want)
+			}
+		}
+	})
+
+	t.Run("self-encoding root", func(t *testing.T) {
+		if got, _ := json.Marshal(mcpInputSchema(reflect.TypeFor[mcpJsonValue]())); string(got) != `{"type":"object"}` {
+			t.Errorf("inputSchema = %s, want {\"type\":\"object\"}", got)
+		}
+		if got := mcpOutputSchema(reflect.TypeFor[*mcpJsonOut]()); got != nil {
+			t.Errorf("outputSchema = %v, want none", got)
+		}
+		if got := mcpOutputSchema(reflect.TypeFor[*mcpTextID]()); got != nil {
+			t.Errorf("outputSchema of a text marshaler = %v, want none", got)
+		}
+	})
 }
 
 type McpDocSystem struct{}
@@ -661,4 +706,29 @@ func TestMcpHandler_MissingTextSummarizerLevel(t *testing.T) {
 	t.Run("invalid level is ignore", func(t *testing.T) {
 		NewMcpHandler(mh, "/mcp").WithOpts(&McpHandlerOpts{MissingTextSummarizerLevel: "nope"}).ExposeMethod("mcp-test-system/names.v1", "Lists names.")
 	})
+}
+
+func TestMcpHandler_AllowOrigin(t *testing.T) {
+	sys := &McpTestSystem{}
+	mh := NewMethodHandler(NewFactory(), NewDebugSecret(), nil)
+	mh.RegisterSystem(sys)
+	srv := NewServer(NewMcpHandler(mh, "/mcp").WithOpts(&McpHandlerOpts{
+		AllowOrigin: func(origin string, _ *http.Request) bool { return origin == "https://app.example" },
+	}).Expose(sys.GreetV1, "Greets someone."))
+
+	for origin, want := range map[string]int{
+		"https://app.example":  http.StatusOK,
+		"https://evil.example": http.StatusForbidden,
+		"":                     http.StatusOK, // non-browser client
+	} {
+		t.Run("origin "+origin, func(t *testing.T) {
+			var header []string
+			if origin != "" {
+				header = []string{"Origin", origin}
+			}
+			if code, _ := mcpRequest(t, srv, "tools/list", "", header...); code != want {
+				t.Errorf("status = %d, want %d", code, want)
+			}
+		})
+	}
 }

@@ -7,7 +7,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/url"
 	"reflect"
 	"runtime"
 	"slices"
@@ -48,7 +47,10 @@ type McpHandlerOpts struct {
 	Instructions string
 	// AllowOrigin decides whether a request with an Origin header is served.
 	// MCP requires servers to validate Origin against DNS rebinding.
-	// By default, only an Origin whose host equals the request's Host is allowed.
+	// Browsers send an Origin header, so by default (nil) every browser request is
+	// forbidden; set AllowOrigin to serve browser-based clients from known origins.
+	// Comparing Origin to the Host header does not help: after DNS rebinding,
+	// both carry the attacker's domain.
 	// Requests without an Origin header (non-browser clients) are always served.
 	AllowOrigin func(origin string, req *http.Request) bool
 	// MissingTextSummarizerLevel reports exposed tools whose result does not implement
@@ -475,9 +477,5 @@ func (h *McpHandler) write(w http.ResponseWriter, status int, resp any) {
 }
 
 func (h *McpHandler) allowOrigin(origin string, req *http.Request) bool {
-	if h.opts.AllowOrigin != nil {
-		return h.opts.AllowOrigin(origin, req)
-	}
-	u, err := url.Parse(origin)
-	return err == nil && u.Host != "" && u.Host == req.Host
+	return h.opts.AllowOrigin != nil && h.opts.AllowOrigin(origin, req)
 }
