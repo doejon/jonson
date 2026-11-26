@@ -732,3 +732,88 @@ func TestMcpHandler_AllowOrigin(t *testing.T) {
 		})
 	}
 }
+
+type McpAuthSystem struct{}
+
+func (*McpAuthSystem) JonsonMethodDescriptions() map[string]string {
+	return map[string]string{
+		"mcp-auth-system/open.v1": "o", "mcp-auth-system/maybe.v1": "m",
+		"mcp-auth-system/allowed.v1": "a", "mcp-auth-system/denied.v1": "d",
+	}
+}
+
+func (*McpAuthSystem) OpenV1(ctx *Context) error                { return nil }
+func (*McpAuthSystem) MaybeV1(ctx *Context, _ *Public) error    { return nil }
+func (*McpAuthSystem) AllowedV1(ctx *Context, _ *Private) error { return nil }
+func (*McpAuthSystem) DeniedV1(ctx *Context, _ *Private) error  { return nil }
+
+type mcpTestAuthorizer struct {
+	testAuthClient
+	err   error
+	asked []*RpcMeta
+}
+
+func (a *mcpTestAuthorizer) AuthorizedMethods(ctx *Context, methods []*RpcMeta) (map[string]bool, error) {
+	if RequireHttpRequest(ctx) == nil {
+		return nil, errors.New("no http request in context")
+	}
+	a.asked = methods
+	return map[string]bool{"mcp-auth-system/allowed.v1": true}, a.err
+}
+
+func TestMcpHandler_Authorizer(t *testing.T) {
+	authorizer := &mcpTestAuthorizer{}
+	fac := NewFactory()
+	fac.RegisterProvider(NewAuthProvider(authorizer))
+	mh := NewMethodHandler(fac, NewDebugSecret(), nil)
+	mh.RegisterSystem(&McpAuthSystem{})
+	mcp := NewMcpHandler(mh, "/mcp").ExposeAll()
+	srv := NewServer(mcp)
+
+	list := func() map[string]any {
+		t.Helper()
+		_, resp := mcpRequest(t, srv, "tools/list", "")
+		return resp
+	}
+	names := func(resp map[string]any) []string {
+		var out []string
+		for _, tool := range resp["result"].(map[string]any)["tools"].([]any) {
+			out = append(out, tool.(map[string]any)["name"].(string))
+		}
+		return out
+	}
+
+	// without authorizer all tools are listed, cached publicly
+	resp := list()
+	if got := names(resp); len(got) != 4 || resp["result"].(map[string]any)["cacheScope"] != "public" {
+		t.Fatalf("without authorizer: tools = %v, cacheScope = %v", got, resp["result"].(map[string]any)["cacheScope"])
+	}
+
+	mcp.WithOpts(&McpHandlerOpts{Name: "jonson", Authorizer: authorizer})
+	resp = list()
+	want := []string{"mcp-auth-system_allowed_v1", "mcp-auth-system_maybe_v1", "mcp-auth-system_open_v1"}
+	if got := names(resp); !reflect.DeepEqual(got, want) {
+		t.Errorf("tools = %v, want %v", got, want)
+	}
+	if s := resp["result"].(map[string]any)["cacheScope"]; s != "private" {
+		t.Errorf("cacheScope = %v, want private", s)
+	}
+	// only private methods are asked, all at once
+	var asked []string
+	for _, m := range authorizer.asked {
+		if m.HttpMethod != RpcHttpMethodPost || m.Source != RpcSourceMcp {
+			t.Errorf("asked %+v, want POST from mcp", m)
+		}
+		asked = append(asked, m.Method)
+	}
+	if want := []string{"mcp-auth-system/allowed.v1", "mcp-auth-system/denied.v1"}; !reflect.DeepEqual(asked, want) {
+		t.Errorf("asked = %v, want %v", asked, want)
+	}
+
+	// an authorizer error fails the list instead of exposing everything
+	authorizer.err = ErrUnauthorized
+	resp = list()
+	if resp["result"] != nil || resp["error"].(map[string]any)["code"] != float64(ErrUnauthorized.Code) {
+		t.Errorf("authorizer error: resp = %v, want unauthorized error", resp)
+	}
+}

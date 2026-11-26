@@ -93,6 +93,8 @@ type apiEndpoint struct {
 	paramsType    reflect.Type
 	// httpMethod is the verb required via HttpGet/HttpPost; empty if none is required
 	httpMethod RpcHttpMethod
+	// private is set if the method requires *Private
+	private bool
 }
 
 type MethodHandler struct {
@@ -299,6 +301,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		typeParams          reflect.Type
 		argPosParams        = -1
 		httpMethod          RpcHttpMethod
+		private             bool
 		paramsSafeguardType = reflect.TypeFor[paramsSafeguard]()
 		validatedParamsType = reflect.TypeFor[ValidatedParams]()
 		providerTypes       = m.factory.Types()
@@ -330,6 +333,8 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 				httpMethod = RpcHttpMethodGet
 			case TypeHttpPost:
 				httpMethod = RpcHttpMethodPost
+			case TypePrivate:
+				private = true
 			}
 			continue
 		}
@@ -391,6 +396,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		paramsPos:     argPosParams,
 		paramsType:    typeParams,
 		httpMethod:    httpMethod,
+		private:       private,
 	}
 }
 

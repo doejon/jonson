@@ -58,6 +58,12 @@ type McpHandlerOpts struct {
 	// Checked when a method is exposed, like MethodHandlerOptions.MissingValidationLevel.
 	// Defaults to ignore.
 	MissingTextSummarizerLevel MissingValidationLevel
+	// Authorizer limits tools/list to the tools the caller may call. Only tools whose
+	// method requires *Private are checked, in a single call per tools/list; the others
+	// are always listed. With an Authorizer, tools/list is cached per caller (cacheScope private).
+	// tools/call needs no Authorizer: *Private protects the method itself.
+	// nil lists all exposed tools.
+	Authorizer AuthBulkAuthorizer
 }
 
 type mcpTool struct {
@@ -338,10 +344,18 @@ func (h *McpHandler) dispatch(w http.ResponseWriter, req *http.Request, msg *Rpc
 		}
 		return http.StatusOK, h.complete(msg.ID, result)
 	case "tools/list":
+		tools, err := h.toolList(w, req)
+		if err != nil {
+			return http.StatusOK, NewRpcErrorResponse(msg.ID, err)
+		}
+		scope := "public"
+		if h.opts.Authorizer != nil {
+			scope = "private"
+		}
 		return http.StatusOK, h.complete(msg.ID, map[string]any{
-			"tools":      h.toolList(),
+			"tools":      tools,
 			"ttlMs":      mcpCacheTTLMs,
-			"cacheScope": "public",
+			"cacheScope": scope,
 		})
 	case "tools/call":
 		if name, ok := mcpDecodeHeader(req.Header.Get("Mcp-Name")); !ok || name != params.Name {
@@ -402,11 +416,37 @@ func mcpDecodeHeader(v string) (string, bool) {
 	return string(b), err == nil
 }
 
-func (h *McpHandler) toolList() []*mcpTool {
-	if h.tools == nil {
-		return []*mcpTool{}
+// toolList returns the exposed tools, without the private ones the Authorizer denies.
+func (h *McpHandler) toolList(w http.ResponseWriter, req *http.Request) ([]*mcpTool, *Error) {
+	var private []*RpcMeta
+	for _, tool := range h.tools {
+		if h.methodHandler.endpoints[tool.method].private {
+			private = append(private, &RpcMeta{Method: tool.method, HttpMethod: RpcHttpMethodPost, Source: RpcSourceMcp})
+		}
 	}
-	return h.tools
+	if h.opts.Authorizer == nil || len(private) == 0 {
+		return append([]*mcpTool{}, h.tools...), nil
+	}
+
+	ctx := NewContext(req.Context(), h.methodHandler.factory, h.methodHandler)
+	ctx.StoreValue(TypeHttpRequest, &HttpRequest{Request: req})
+	ctx.StoreValue(TypeHttpResponseWriter, &HttpResponseWriter{ResponseWriter: w})
+	allowed, err := h.opts.Authorizer.AuthorizedMethods(ctx, private)
+	if err = ctx.Finalize(err); err != nil {
+		h.methodHandler.getLogger(ctx).Warn("mcp handler: authorizer failed", "error", err)
+		if e, ok := err.(*Error); ok {
+			return nil, e
+		}
+		return nil, ErrInternal.CloneWithData(&ErrorData{Debug: h.methodHandler.errorEncoder.Encode(err.Error())})
+	}
+
+	tools := []*mcpTool{}
+	for _, tool := range h.tools {
+		if !h.methodHandler.endpoints[tool.method].private || allowed[tool.method] {
+			tools = append(tools, tool)
+		}
+	}
+	return tools, nil
 }
 
 type mcpContent struct {
