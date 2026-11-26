@@ -33,13 +33,17 @@ func main() {
 	// let's declare _how_ we want to handle our calls
 	rpc := jonson.NewHttpRpcHandler(methods, "/rpc")
 	httpMethod := jonson.NewHttpMethodHandler(methods)
+	// expose selected methods as tools for AI agents (Model Context Protocol)
+	// expose all POST methods of the account system; their doc comments become the tool descriptions.
+	// use Expose(accountSystem.GetProfileV1) for single methods or ExposeAll() for every registered endpoint.
+	mcp := jonson.NewMcpHandler(methods, "/mcp").ExposeSystem(accountSystem)
 	rgxp := jonson.NewHttpRegexpHandler(providers, methods)
 	rgxp.RegisterRegexp(regexp.MustCompile("/status"), func(ctx *jonson.Context, w *jonson.HttpResponseWriter) {
 		w.Write([]byte("UP"))
 	})
 
 	// start the server
-	server := jonson.NewServer(rpc, httpMethod, rgxp)
+	server := jonson.NewServer(rpc, httpMethod, mcp, rgxp)
 
 	// create a new graceful shutdown provider
 	graceful := jonson.NewGracefulProvider().WithDefaultHttpServer(server, ":8080").WithTimeout(time.Second * 5).WithLogger(logger)

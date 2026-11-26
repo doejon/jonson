@@ -3,6 +3,9 @@ package jonson
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -389,5 +392,110 @@ func TestMethodNameHelpers(t *testing.T) {
 				t.Fatal("expected version to match", version, v.version)
 			}
 		})
+	}
+}
+
+type NilResultSystem struct{}
+
+func (*NilResultSystem) PointerV1(ctx *Context) (*MeV1Result, error) { return nil, nil }
+
+func TestMethodHandler_NilResult(t *testing.T) {
+	factory := NewFactory()
+	mh := NewMethodHandler(factory, NewDebugSecret(), nil)
+	mh.RegisterSystem(&NilResultSystem{})
+
+	t.Run("nil pointer result is an internal error", func(t *testing.T) {
+		resp := mh.processRpcMessage(RpcSourceHttpRpc, RpcHttpMethodPost, httptest.NewRequest(http.MethodPost, "/rpc", nil), httptest.NewRecorder(), nil,
+			&RpcRequest{Version: "2.0", ID: []byte("1"), Method: "nil-result-system/pointer.v1"})
+		e, ok := resp.(*RpcErrorResponse)
+		if !ok || e.Error.Code != ErrInternal.Code {
+			t.Fatalf("response = %#v, want internal error", resp)
+		}
+	})
+}
+
+type ResultErrorOnlySystem struct{}
+
+func (*ResultErrorOnlySystem) GetV1(ctx *Context) error { return nil }
+
+type ResultStructPointerSystem struct{}
+
+func (*ResultStructPointerSystem) GetV1(ctx *Context) (*MeV1Result, error) { return &MeV1Result{}, nil }
+
+type ResultSliceSystem struct{}
+
+func (*ResultSliceSystem) GetV1(ctx *Context) ([]string, error) { return nil, nil }
+
+type ResultMapSystem struct{}
+
+func (*ResultMapSystem) GetV1(ctx *Context) (map[string]int, error) { return nil, nil }
+
+type ResultBoolSystem struct{}
+
+func (*ResultBoolSystem) GetV1(ctx *Context) (bool, error) { return false, nil }
+
+type ResultAnySystem struct{}
+
+func (*ResultAnySystem) GetV1(ctx *Context) (any, error) { return nil, nil }
+
+type ResultStructValueSystem struct{}
+
+func (*ResultStructValueSystem) GetV1(ctx *Context) (MeV1Result, error) { return MeV1Result{}, nil }
+
+type ResultSlicePointerSystem struct{}
+
+func (*ResultSlicePointerSystem) GetV1(ctx *Context) (*[]string, error) { return nil, nil }
+
+func TestRegisterMethod_ResultMustBeStructPointer(t *testing.T) {
+	register := func(sys any) {
+		NewMethodHandler(NewFactory(), NewDebugSecret(), nil).RegisterSystem(sys)
+	}
+	for name, sys := range map[string]any{
+		"error only":        &ResultErrorOnlySystem{},
+		"pointer to struct": &ResultStructPointerSystem{},
+	} {
+		t.Run(name+" is accepted", func(t *testing.T) { register(sys) })
+	}
+	for name, sys := range map[string]any{
+		"slice":            &ResultSliceSystem{},
+		"map":              &ResultMapSystem{},
+		"bool":             &ResultBoolSystem{},
+		"any":              &ResultAnySystem{},
+		"struct value":     &ResultStructValueSystem{},
+		"pointer to slice": &ResultSlicePointerSystem{},
+	} {
+		t.Run(name+" panics", func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "pointer to a struct") {
+					t.Errorf("recovered %v, want the result type panic", r)
+				}
+			}()
+			register(sys)
+		})
+	}
+}
+
+type registerMethodParams struct {
+	Params
+	Name string `json:"name"`
+}
+
+func TestRegisterMethod_PlainFunc(t *testing.T) {
+	factory := NewFactory()
+	mh := NewMethodHandler(factory, NewDebugSecret(), nil)
+	mh.RegisterMethod(&MethodDefinition{
+		System:  "custom",
+		Method:  "hello",
+		Version: 1,
+		HandlerFunc: func(ctx *Context, p *registerMethodParams) (*MeV1Result, error) {
+			return &MeV1Result{Name: "hello " + p.Name}, nil
+		},
+	})
+	res, err := mh.CallMethod(NewContext(context.Background(), factory, mh), "custom/hello.v1", RpcHttpMethodPost, map[string]any{"name": "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.(*MeV1Result).Name; got != "hello bob" {
+		t.Errorf("name = %q, want hello bob", got)
 	}
 }

@@ -28,6 +28,16 @@ type AuthClient interface {
 	IsAuthorized(ctx *Context) (*string, error)
 }
 
+// AuthBulkAuthorizer decides for many methods at once whether the caller may call them,
+// e.g. to list only the tools a caller may call (see McpHandlerOpts.Authorizer).
+// It complements AuthClient.IsAuthorized, which checks the single method being called.
+type AuthBulkAuthorizer interface {
+	// AuthorizedMethods returns for each method whether the caller may call it;
+	// a missing method counts as false. Methods are named like "system/method.v1",
+	// see ParseRpcMethod.
+	AuthorizedMethods(ctx *Context, methods []*RpcMeta) (map[string]bool, error)
+}
+
 // NewAuthProvider returns a new instance of an auth provider
 func NewAuthProvider(
 	client AuthClient,

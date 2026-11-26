@@ -32,6 +32,7 @@ You will be able to expose functions either using:
 - a http endpoint per rpc
 - a single http endpoint serving all calls
 - websocket
+- MCP (Model Context Protocol), as tools for AI agents
 
 In order to do so, Jonson consists of:
 
@@ -78,6 +79,9 @@ In order to expose the endpoints properly, we need to follow a naming scheme:
 `<MethodName>V<version>`.
 
 A remote procedure call accepts parameters (optional) and returns a result (optional) _or_ an error.
+The result is always a pointer to a struct, so that every response is a JSON object: a method returns either
+`error` or `(*Result, error)`. Registering a method with any other result type (slice, map, primitive, struct value)
+panics at startup, and returning `nil, nil` from a `(*Result, error)` method is an internal error.
 
 To detect parameters which need to be marshaled/unmarshaled during the request,
 add a `jonson.Params` interface within your parameters which you will be sending.
@@ -463,7 +467,9 @@ The exposed http endpoint will only accept POST requests.
 The `NewHttpMethodHandler` will expose each remote procedure call as its own endpoint.
 By default, none of the endpoints will check for the correct http method.
 In case you want to enforce the usage of GET or POST, use jonson.HttpGet and jonson.HttpPost
-as parameters within your remote procedure call:
+as parameters within your remote procedure call.
+RPC over a single HTTP endpoint, websockets and MCP only use POST: a method requiring
+jonson.HttpGet is rejected with `ErrServerMethodNotAllowed` there, and `McpHandler.Expose` panics on it.
 
 ```go
 // LoginV1 allows an account to log in
@@ -478,6 +484,87 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, _ jonson.HttpPost, params 
 
 Now, the endpoint will only accept http calls using POST.
 In case the endpoint is called using a single endpoint for rpc or websocket, the required jonson.HttpPost has no effect.
+
+### MCP: methods as tools for AI agents
+
+The [Model Context Protocol](https://modelcontextprotocol.io) is JSON-RPC 2.0 as well, so `NewMcpHandler` serves
+registered methods as MCP tools. A tool call runs through the same pipeline as every other handler:
+providers, auth, validation, logging and the error `Secret`. Inside the method, `RequireRpcMeta(ctx).Source`
+is `jonson.RpcSourceMcp`.
+
+Only the methods you pass to `Expose` become tools, each with a description for the model.
+Pass the method value of a registered system; methods registered by name with `RegisterMethod`
+can be exposed with `ExposeMethod("system/method.v1", ...)`.
+Without a description, the method's doc comment is used: `jonson-generate` writes it into
+`jonson.descriptions.gen.go` (as `JonsonMethodDescriptions`, see `jonson.MethodDescriber`):
+
+```go
+mcpHandler := jonson.NewMcpHandler(methodHandler, "/mcp").
+  Expose(authentication.LoginV1, "Logs an account in and returns a session.").
+  Expose(account.GetProfileV1) // uses the doc comment of GetProfileV1
+
+server := jonson.NewServer(mcpHandler, rpcHandler, httpHandler)
+```
+
+To expose many methods at once, `ExposeSystem(account)` exposes all methods of a registered system and
+`ExposeAll()` all endpoints registered so far. Both rely solely on the generated descriptions: they panic
+on a method without doc comment, and skip methods requiring GET as well as tools that are already exposed,
+so `Expose(account.GetProfileV1, "custom description").ExposeSystem(account)` keeps the custom description.
+
+- Tool names replace `/` and `.` with `_`: `account/get-profile.v1` becomes `account_get-profile_v1`.
+- The `inputSchema` of a tool is built from the params struct: `json` tags give the names, fields without
+  `omitempty` or `omitzero` are required, except pointers, slices and maps (missing ones decode to nil), and a `description:"..."` tag documents a field for the model.
+  Without a tag, the field's code comment is used: `jonson-generate` writes the comments of all exported
+  structs into `jonson.descriptions.gen.go` (as `JonsonFieldDescriptions`, see `jonson.FieldDescriber`).
+  Unknown fields are rejected unless the params implement `AllowUnknownFieldsParams`.
+- A successful call returns the result as `structuredContent` and as text. The text is the result's JSON, unless the
+  result implements `jonson.McpTextSummarizer`: then `JonsonMcpTextContent()` gives a short summary for the model
+  instead, so the data is not sent twice:
+
+  ```go
+  func (r *GetProfileV1Result) JonsonMcpTextContent() string {
+    return "Profile of " + r.Name
+  }
+  ```
+
+  To find tools without a summary, set `McpHandlerOpts.MissingTextSummarizerLevel` (`info`, `warn`, `error` or
+  `fatal`, like `MissingValidationLevel`). Each exposed method whose result lacks `JonsonMcpTextContent` is then
+  reported when it is exposed. It defaults to `ignore`.
+
+  The tool's `outputSchema` is built from the method's result type, like the `inputSchema` from the params;
+  a method returning only `error` has none. Types that decode themselves (`UnmarshalJSON`) accept any value in the
+  `inputSchema`, types that encode themselves (`MarshalJSON`) any value in the `outputSchema`; with `UnmarshalText`
+  or `MarshalText` they are strings.
+  A failed call, including a validation error, returns `isError: true` with the jonson error as text, so that
+  the model can correct its arguments.
+- The handler speaks MCP `2026-07-28` only (`jonson.McpProtocolVersion`): `server/discover`, `tools/list` and `tools/call`.
+  Every request carries its protocol version in `_meta` and the `MCP-Protocol-Version`, `Mcp-Method` (and for
+  `tools/call` `Mcp-Name`) headers; a mismatch is rejected with `400`. Older clients, which open with `initialize`,
+  get an `UnsupportedProtocolVersion` error naming the supported version.
+- The transport is streamable HTTP: one JSON-RPC message per `POST`, answered with `application/json`.
+  There are no sessions and no server-sent events (`GET` returns 405), so any replica can answer any call.
+- Requests with an `Origin` header, which browsers always send, are forbidden unless `McpHandlerOpts.AllowOrigin`
+  allows the origin (protection against DNS rebinding). Clients outside a browser send no `Origin` and are served.
+  To serve a browser-based client, allow its origin:
+
+  ```go
+  jonson.NewMcpHandler(methodHandler, "/mcp").WithOpts(&jonson.McpHandlerOpts{
+    AllowOrigin: func(origin string, _ *http.Request) bool { return origin == "https://app.example.com" },
+  })
+  ```
+
+## Hooks
+
+Params, results and systems change how jonson treats them by implementing optional methods prefixed with
+`Jonson`. All hook interfaces are declared in [`hooks.go`](hooks.go).
+
+| Method | Implemented on | Interface | Effect |
+|---|---|---|---|
+| `JonsonValidate(*Validator)` | params | `ValidatedParams` | validates params before the method runs |
+| `JonsonAllowUnknownFields()` | params | `AllowUnknownFieldsParams` | accepts fields the params don't declare |
+| `JonsonFieldDescriptions()` | params and result structs (generated) | `FieldDescriber` | describes fields in the MCP `inputSchema` and `outputSchema` |
+| `JonsonMcpTextContent()` | result | `McpTextSummarizer` | gives a short text summary of a tool result for the model |
+| `JonsonMethodDescriptions()` | system (generated) | `MethodDescriber` | gives MCP tool descriptions |
 
 ## Secret
 

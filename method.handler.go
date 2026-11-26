@@ -91,6 +91,10 @@ type apiEndpoint struct {
 	methodContext reflect.Value
 	paramsPos     int
 	paramsType    reflect.Type
+	// httpMethod is the verb required via HttpGet/HttpPost; empty if none is required
+	httpMethod RpcHttpMethod
+	// private is set if the method requires *Private
+	private bool
 }
 
 type MethodHandler struct {
@@ -286,7 +290,7 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 	}
 
 	paramShift := 0
-	if !def.methodContext.IsNil() {
+	if def.methodContext.IsValid() {
 		// we have received a bounded method. we need to pass its context as first argument
 		paramShift = 1
 	}
@@ -296,6 +300,8 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		seenTypes           = map[reflect.Type]struct{}{}
 		typeParams          reflect.Type
 		argPosParams        = -1
+		httpMethod          RpcHttpMethod
+		private             bool
 		paramsSafeguardType = reflect.TypeFor[paramsSafeguard]()
 		validatedParamsType = reflect.TypeFor[ValidatedParams]()
 		providerTypes       = m.factory.Types()
@@ -322,6 +328,14 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		// check if we have a provider
 		if providerTypes.Contains(rti) {
 			seenTypes[rti] = struct{}{}
+			switch rti {
+			case TypeHttpGet:
+				httpMethod = RpcHttpMethodGet
+			case TypeHttpPost:
+				httpMethod = RpcHttpMethodPost
+			case TypePrivate:
+				private = true
+			}
 			continue
 		}
 
@@ -368,6 +382,12 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 	if et.Kind() != reflect.Interface || et.Name() != "error" || et.PkgPath() != "" {
 		panic(errors.New("method handler: " + endpoint + " must return error interface as last argument"))
 	}
+	// results are always JSON objects: a pointer to a struct
+	if rt.NumOut() == 2 {
+		if res := rt.Out(0); res.Kind() != reflect.Pointer || res.Elem().Kind() != reflect.Struct {
+			panic(errors.New("method handler: " + endpoint + " must return a pointer to a struct as result, not " + res.String()))
+		}
+	}
 
 	m.endpoints[endpoint] = &apiEndpoint{
 		def:           def,
@@ -375,6 +395,8 @@ func (m *MethodHandler) RegisterMethod(def *MethodDefinition) {
 		methodContext: def.methodContext,
 		paramsPos:     argPosParams,
 		paramsType:    typeParams,
+		httpMethod:    httpMethod,
+		private:       private,
 	}
 }
 
@@ -577,7 +599,7 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest) (any, e
 		paramShift = 0
 	)
 
-	if !handler.methodContext.IsNil() {
+	if handler.methodContext.IsValid() {
 		// we have a methodContext we need to pass as hidden first argument
 		args[0] = handler.methodContext
 		paramShift = 1
@@ -702,11 +724,13 @@ func (m *MethodHandler) callMethod(ctx *Context, rpcRequest *RpcRequest) (any, e
 	if err != nil {
 		return nil, err
 	}
-	if res != nil {
-		return res, nil
+	// a method returning (*result, error) must return one of them; a nil result is a bug in the method
+	if len(handlerResult) == 2 && handlerResult[0].IsNil() {
+		m.getLogger(ctx).Error("method handler: method returned neither a result nor an error",
+			"rpcRequest", m.opts.RpcRequestLogInfoInterceptor(rpcRequest.getLogInfo(m.errorEncoder)))
+		return nil, errors.New("method handler: " + rpcRequest.Method + " returned neither a result nor an error")
 	}
-
-	return nil, nil
+	return res, nil
 }
 
 func getRecoverError(e any) error {

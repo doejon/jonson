@@ -1,5 +1,7 @@
 package jonson
 
+import "reflect"
+
 // httpMethodProvider allows us to ensure
 // a specific http method has been used when using
 // the HttpMethodHandler.
@@ -27,9 +29,13 @@ func (h *httpMethodProvider) NewHttpPost(ctx *Context) HttpPost {
 
 func (h *httpMethodProvider) NewHttpGet(ctx *Context) HttpGet {
 	meta := RequireRpcMeta(ctx)
-	// we only care for http sources
-	if meta.Source != RpcSourceHttp {
+	switch meta.Source {
+	case RpcSourceInternal:
 		return &httpGet{}
+	case RpcSourceHttp:
+	default:
+		// http rpc, ws and mcp are POST-only
+		panic(ErrServerMethodNotAllowed)
 	}
 	req := RequireHttpRequest(ctx)
 	if req.Method != "GET" {
@@ -37,6 +43,8 @@ func (h *httpMethodProvider) NewHttpGet(ctx *Context) HttpGet {
 	}
 	return &httpGet{}
 }
+
+var TypeHttpPost = reflect.TypeFor[HttpPost]()
 
 // HttpPost can be used in case you want to enforce POST within your remote procedures
 // served over http.
@@ -50,10 +58,12 @@ type httpPost struct{}
 
 func (h *httpPost) __post() {}
 
+var TypeHttpGet = reflect.TypeFor[HttpGet]()
+
 // HttpGet can be used in case you want to enforce GET within your remote procedures
 // served over http.
-// In case you're using websockets or http rpc, GET cannot be enforced.
-// For rpc over http (single endpoint), POST will be enforced by default.
+// Http rpc, websockets and mcp only speak POST: calls to a HttpGet method over
+// them fail with ErrServerMethodNotAllowed, and McpHandler.Expose panics on them.
 // Example:
 // func (s *System) GetProfileV1(ctx *jonson.Context, _ jonson.HttpGet) error{}
 type HttpGet interface {

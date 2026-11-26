@@ -38,6 +38,7 @@ func (a *Account) subFnCall(ctx *jonson.Context) {
 
 type GetProfileV1Params struct {
 	jonson.Params
+	// Uuid of the account
 	Uuid string `json:"uuid"`
 }
 
@@ -49,6 +50,7 @@ type GetProfileV1Result struct {
 	Name string `json:"name"`
 }
 
+// GetProfileV1 returns the name of the account with the given uuid.
 func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.HttpPost, params *GetProfileV1Params) (*GetProfileV1Result, error) {
 	jonson.RequireLogger(ctx).Info("calling GetProfileV1")
 
@@ -63,10 +65,10 @@ func (a *Account) GetProfileV1(ctx *jonson.Context, caller *Public, _ jonson.Htt
 
 type SubmitPreferencesV1Params struct {
 	jonson.Params
-	Name      string   `json:"name"`
-	Age       int      `json:"age"`
-	Marketing bool     `json:"marketing"`
-	Tags      []string `json:"tags"`
+	Name      string   `json:"name"`           // name of the account holder
+	Age       int      `json:"age"`            // age in years
+	Marketing bool     `json:"marketing"`      // whether the account accepts marketing messages
+	Tags      []string `json:"tags,omitempty"` // free-form interest tags
 }
 
 func (p *SubmitPreferencesV1Params) JonsonValidate(v *jonson.Validator) {
@@ -83,6 +85,7 @@ type SubmitPreferencesV1Result struct {
 	Tags    []string `json:"tags"`
 }
 
+// SubmitPreferencesV1 stores the marketing preferences of an account and returns a summary.
 func (a *Account) SubmitPreferencesV1(ctx *jonson.Context, params *SubmitPreferencesV1Params) (*SubmitPreferencesV1Result, error) {
 	jonson.RequireLogger(ctx).Info("calling SubmitPreferencesV1")
 
@@ -119,6 +122,7 @@ type QueryPreviewV1Result struct {
 	Summary string   `json:"summary"`
 }
 
+// QueryPreviewV1 returns the given count, enabled flag and tags together with a summary.
 func (a *Account) QueryPreviewV1(ctx *jonson.Context, caller *Public, _ jonson.HttpPost, params *QueryPreviewV1Params) (*QueryPreviewV1Result, error) {
 	jonson.RequireLogger(ctx).Info("calling QueryPreviewV1")
 
