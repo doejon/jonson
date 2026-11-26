@@ -15,9 +15,13 @@ import (
 
 func init() {
 	respMethodNotAllowed, _ = json.Marshal(NewRpcErrorResponse(nil, ErrServerMethodNotAllowed))
+	respInternalError, _ = json.Marshal(ErrInternal)
 }
 
-var respMethodNotAllowed []byte
+var (
+	respMethodNotAllowed []byte
+	respInternalError    []byte
+)
 
 var TypeHttpRequest = reflect.TypeFor[*HttpRequest]()
 
@@ -124,6 +128,20 @@ func (w *regexpWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// headerOnlyWriter is handed to rpc methods: they may set headers (e.g. cookies),
+// but the response body is always the method's json result.
+type headerOnlyWriter struct {
+	http.ResponseWriter
+}
+
+func (w *headerOnlyWriter) WriteHeader(int) {
+	panic(ErrServerMethodNotAllowed)
+}
+
+func (w *headerOnlyWriter) Write([]byte) (int, error) {
+	panic(ErrServerMethodNotAllowed)
+}
+
 type registeredRegexp struct {
 	rpcMethod string
 }
@@ -162,6 +180,8 @@ func (h *HttpRegexpHandler) RegisterRegexp(pattern *regexp.Regexp, handler any) 
 	}
 
 	h.patterns[pattern] = func(w http.ResponseWriter, r *http.Request, parts []string) {
+		// per request: must not be shared between concurrent requests
+		var err error
 		wtr := &regexpWriter{
 			ResponseWriter: w,
 			written:        false,
@@ -511,7 +531,15 @@ func (h *HttpMethodHandler) Handle(w http.ResponseWriter, req *http.Request) boo
 	}
 
 	// single response for these calls allowed only
-	b, _ := h.methodHandler.opts.JsonHandler.Marshal(dataToMarshal)
+	b, err := h.methodHandler.opts.JsonHandler.Marshal(dataToMarshal)
+	if err != nil {
+		h.methodHandler.getLogger(nil).Error("http method handler: marshal response failed",
+			"method", p,
+			"error", err,
+		)
+		httpStatus = http.StatusInternalServerError
+		b = respInternalError
+	}
 
 	// make sure we're responding with application/json for everything
 	if len(b) > 0 {

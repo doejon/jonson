@@ -544,6 +544,10 @@ func (m *MethodHandler) processRpcMessage(
 	ctx.StoreValue(TypeHttpRequest, &HttpRequest{
 		Request: r,
 	})
+	// methods may set headers, the body is always the json response
+	if w != nil {
+		w = &headerOnlyWriter{ResponseWriter: w}
+	}
 	ctx.StoreValue(TypeHttpResponseWriter, &HttpResponseWriter{
 		ResponseWriter: w,
 	})

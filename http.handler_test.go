@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -919,5 +920,125 @@ func TestHttpHandlerRpcMetaHttpMethod(t *testing.T) {
 		if sys.lastVerb != want {
 			t.Errorf("%s: RpcMeta.HttpMethod = %q, want %q", verb, sys.lastVerb, want)
 		}
+	}
+}
+
+type RawWriterSystem struct{}
+
+type RawWriterResult struct {
+	Value float64 `json:"value"`
+}
+
+func (s *RawWriterSystem) UnmarshalableResultV1(ctx *Context) (*RawWriterResult, error) {
+	return &RawWriterResult{Value: math.NaN()}, nil
+}
+
+// SetCookieV1 sets a header only, which is allowed
+func (s *RawWriterSystem) SetCookieV1(ctx *Context) error {
+	http.SetCookie(RequireHttpResponseWriter(ctx), &http.Cookie{Name: "session", Value: "abc"})
+	return nil
+}
+
+// WriteBodyV1 writes a body, which is not allowed: the body is always the json response
+func (s *RawWriterSystem) WriteBodyV1(ctx *Context) error {
+	_, _ = RequireHttpResponseWriter(ctx).Write([]byte("raw"))
+	return nil
+}
+
+func TestHttpHandlerResponseWriter(t *testing.T) {
+	factory := NewFactory()
+	methodHandler := NewMethodHandler(factory, NewDebugSecret(), nil)
+	methodHandler.RegisterSystem(&RawWriterSystem{})
+	server := NewServer(NewHttpRpcHandler(methodHandler, "/rpc"), NewHttpMethodHandler(methodHandler))
+
+	call := func(path string) *httptest.ResponseRecorder {
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", path, nil)
+		server.ServeHTTP(wtr, req)
+		return wtr
+	}
+	rpc := func(method string) *httptest.ResponseRecorder {
+		wtr := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/rpc", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"`+method+`"}`))
+		server.ServeHTTP(wtr, req)
+		return wtr
+	}
+
+	t.Run("unmarshalable result is returned as internal error", func(t *testing.T) {
+		wtr := call("/raw-writer-system/unmarshalable-result.v1")
+		if wtr.Code != http.StatusInternalServerError {
+			t.Fatalf("expected http status code 500, got: %d", wtr.Code)
+		}
+		if body := wtr.Body.String(); body != string(respInternalError) {
+			t.Fatalf("expected internal error, got: %s", body)
+		}
+	})
+
+	t.Run("http may set headers", func(t *testing.T) {
+		wtr := call("/raw-writer-system/set-cookie.v1")
+		if wtr.Code != http.StatusOK {
+			t.Fatalf("expected http status code 200, got: %d", wtr.Code)
+		}
+		if cookie := wtr.Header().Get("Set-Cookie"); cookie != "session=abc" {
+			t.Fatalf("expected cookie, got: %q", cookie)
+		}
+	})
+
+	t.Run("http cannot write the body", func(t *testing.T) {
+		wtr := call("/raw-writer-system/write-body.v1")
+		if wtr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected http status code 405, got: %d", wtr.Code)
+		}
+		if body := wtr.Body.String(); strings.HasPrefix(body, "raw") {
+			t.Fatalf("expected raw body to be rejected, got: %q", body)
+		}
+	})
+
+	t.Run("rpc may set headers", func(t *testing.T) {
+		wtr := rpc("raw-writer-system/set-cookie.v1")
+		if cookie := wtr.Header().Get("Set-Cookie"); cookie != "session=abc" {
+			t.Fatalf("expected cookie, got: %q", cookie)
+		}
+		if strings.Contains(wtr.Body.String(), `"error"`) {
+			t.Fatalf("expected success, got: %s", wtr.Body.String())
+		}
+	})
+
+	t.Run("rpc cannot write the body", func(t *testing.T) {
+		wtr := rpc("raw-writer-system/write-body.v1")
+		resp := struct {
+			Error *Error `json:"error"`
+		}{}
+		if err := json.Unmarshal(wtr.Body.Bytes(), &resp); err != nil || resp.Error == nil || resp.Error.Code != ErrServerMethodNotAllowed.Code {
+			t.Fatalf("expected method not allowed error, got: %s", wtr.Body.String())
+		}
+	})
+}
+
+func TestHttpHandlerRegexpErrorIsScopedPerRequest(t *testing.T) {
+	factory := NewFactory()
+	methodHandler := NewMethodHandler(factory, NewDebugSecret(), nil)
+	regexpHandler := NewHttpRegexpHandler(factory, methodHandler)
+
+	regexpHandler.RegisterRegexp(regexp.MustCompile("^/maybe-fail$"), func(ctx *Context, r *HttpRequest) {
+		if r.URL.Query().Get("fail") != "" {
+			panic(ErrUnauthorized)
+		}
+	})
+
+	server := NewServer(regexpHandler)
+
+	wtr := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/maybe-fail?fail=1", nil)
+	server.ServeHTTP(wtr, req)
+	if wtr.Code != http.StatusForbidden {
+		t.Fatalf("expected http status code 403, got: %d", wtr.Code)
+	}
+
+	wtr = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/maybe-fail", nil)
+	server.ServeHTTP(wtr, req)
+	if wtr.Code != http.StatusOK {
+		t.Fatalf("expected http status code 200, got: %d (error of previous request leaked)", wtr.Code)
 	}
 }
