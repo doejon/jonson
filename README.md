@@ -6,6 +6,7 @@ The fastest way to spin up api endpoints in go:
 type News struct {}
 
 type GetHeadlinesV1Params struct {
+  jonson.Params
   Country string `json:"country"`
 }
 
@@ -20,7 +21,7 @@ func (n *News) GetHeadlinesV1(ctx *jonson.Context,
   params *GetHeadlinesV1Params,
 ) (*GetHeadlinesV1Result, error){
   return &GetHeadlinesV1Result{
-    headlines: []{"Welcome simplicity!"}
+    Headlines: []string{"Welcome simplicity!"},
   }, nil
 }
 ```
@@ -36,10 +37,12 @@ You will be able to expose functions either using:
 
 In order to do so, Jonson consists of:
 
-- a server which exposes either the http endpoint(s) and/or a websocket connection
+- a server which exposes the http endpoint(s), a websocket connection and/or an MCP endpoint
 - a factory which allows you to _provide_ functionality to your API endpoints
-- parameter validation (coming soon)
+- parameter validation
 - error message encryption/decryption to hide sensitive information from the client
+- a code generator for typed in-process calls and providers
+- test helpers (`jonsontest`) for calling your endpoints in unit tests
 
 ## Project structure
 
@@ -83,8 +86,9 @@ The result is always a pointer to a struct, so that every response is a JSON obj
 `error` or `(*Result, error)`. Registering a method with any other result type (slice, map, primitive, struct value)
 panics at startup, and returning `nil, nil` from a `(*Result, error)` method is an internal error.
 
-To detect parameters which need to be marshaled/unmarshaled during the request,
-add a `jonson.Params` interface within your parameters which you will be sending.
+Parameters are a pointer to a struct which **must** embed `jonson.Params`: this is how jonson tells
+the parameters apart from provided types. A method may have at most one parameter struct.
+Without the embedded `jonson.Params`, registering the method panics at startup ("requires unknown type").
 
 In order to validate parameters, make the RegisterV1Params implement `jonson.ValidatedParams` interface.
 By doing so, before each function call Jonson will make sure that the JonsonValidate() function will be called.
@@ -100,7 +104,7 @@ func NewAuthentication() *Authentication {
   return &Authentication{}
 }
 
-type RegisterV1Params {
+type RegisterV1Params struct {
   jonson.Params
   Username string `json:"username"`
   Password string `json:"password"`
@@ -131,6 +135,7 @@ func (a *Authentication) RegisterV1(ctx *jonson.Context, params *RegisterV1Param
 }
 
 type LoginV1Params struct {
+  jonson.Params
   Username string `json:"username"`
   Password string `json:"password"`
 }
@@ -141,7 +146,7 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, params *LoginV1Params) err
   return nil
 }
 
-// LoginV1 allows an account to log in
+// LogoutV1 allows an account to log out
 func (a *Authentication) LogoutV1(ctx *jonson.Context) error {
   // put your logout logic here
   return nil
@@ -149,16 +154,18 @@ func (a *Authentication) LogoutV1(ctx *jonson.Context) error {
 
 ```
 
-For more complicated parameters and their validation, you can also provide validators on nested structs, such as:
+For more complicated parameters and their validation, you can also provide validators on nested structs.
+Only the top-level params embed `jonson.Params`; nested structs just implement `JonsonValidate`:
 
 ```go
-type Profile struct {
-  Name string
+type UpdateProfileV1Params struct {
+  jonson.Params
+  Name    string   `json:"name"`
   Address *Address `json:"address,omitempty"`
 }
 
-func(p *Profile) JonsonValidate(v *jonson.Validator){
-  if len(a.Name) < 2{
+func(p *UpdateProfileV1Params) JonsonValidate(v *jonson.Validator){
+  if len(p.Name) < 2{
     v.Path("name").Message("name insufficient")
   }
   if (p.Address != nil){
@@ -175,7 +182,7 @@ func(a *Address) JonsonValidate(v *jonson.Validator){
   if len(a.Street) < 2{
     v.Path("street").Message("street insufficient")
   }
-  if len(a.zip) < 2{
+  if len(a.Zip) < 2{
     v.Path("zip").Message("zip insufficient")
   }
 }
@@ -191,6 +198,7 @@ In case you need to be a bit more relaxed on unknown keys, you can implement the
 ```go
 
 type ParamsAllowingUnknownFields struct {
+  jonson.Params
   Uuid string `json:"id"`
 }
 
@@ -288,7 +296,7 @@ func ProvideServiceName(ctx *jonson.Context) *ServiceName {
 }
 ```
 
-To register a simple provider function, use `factory.RegisterProviderFunc` passing the pointer to the InfrastructureProvider.
+To register a simple provider function, use `factory.RegisterProviderFunc` passing the function itself.
 Again, for details, check out the section "Putting it all together";
 
 Once the types are provided by the factory, you can access them in your remote procedure calls:
@@ -329,20 +337,22 @@ Time will now be passed between contexts.
 In case you also want to make your provided values shareable across impersonation calls, mark them with `jonson.ShareableAcrossImpersonation`. Only values that are explicitly marked with `jonson.ShareableAcrossImpersonation` will
 be taken across the impersonation boundaries.
 
-Some context values want to be finalized. Jonson allows you to specify a `Finalize(err[]error)` method on your provided types.
+Some context values want to be finalized. Jonson allows you to specify a `Finalize(errs []error) error` method
+on your provided types (`jonson.Finalizeable`).
 In case a finalize method is found, it will be called _after_ the remote procedure call within the context has been completed.
-You can e.g. clean up certain open connections within Finalize().
+It receives the errors of the call so far, e.g. to roll back a transaction:
 
 ```go
-
-type Time struct {
-  jonson.Shareable
-  time.Time
+// @generate
+type Tx struct {
+  *sql.Tx
 }
 
-func (t *Time) Finalize(err []error)error {
-  t.Time = nil
-  return nil
+func (t *Tx) Finalize(errs []error) error {
+  if len(errs) > 0 {
+    return t.Rollback()
+  }
+  return t.Commit()
 }
 ```
 
@@ -353,7 +363,7 @@ In case you would like to inspect certain information from jonson, provide a log
 ```go
 
 logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-factory := jonson.NewFactory(jonson.NewFactoryOptions{
+factory := jonson.NewFactory(&jonson.FactoryOptions{
   Logger: logger,
 })
 
@@ -368,9 +378,9 @@ To do so, use:
 ```go
 
 logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-factory := jonson.NewFactory(jonson.NewFactoryOptions{
+factory := jonson.NewFactory(&jonson.FactoryOptions{
   Logger: logger,
-  LoggerOptions: (&LoggerOptions{}).WithCallerFunction().WithCallerRpcMeta(),
+  LoggerOptions: (&jonson.LoggerOptions{}).WithCallerFunction().WithCallerRpcMeta(),
 })
 
 ```
@@ -391,11 +401,13 @@ providers, such as:
 
 ```go
 
-func RequireHttpRequest(ctx *jonson.Context) *http.Request{}
-func RequireHttpResponseWriter(ctx *jonson.Context) http.ResponseWriter{}
+func RequireHttpRequest(ctx *jonson.Context) *jonson.HttpRequest{}               // embeds *http.Request
+func RequireHttpResponseWriter(ctx *jonson.Context) *jonson.HttpResponseWriter{} // embeds http.ResponseWriter
 func RequireWSClient(ctx *jonson.Context) *jonson.WSClient{}
 func RequireRpcMeta(ctx *jonson.Context) *jonson.RpcMeta{}
 func RequireSecret(ctx *jonson.Context) jonson.Secret{}
+func RequireLogger(ctx *jonson.Context) *slog.Logger{}
+func RequireJsonHandler(ctx *jonson.Context) jonson.JsonHandler{}
 
 ```
 
@@ -407,10 +419,16 @@ which returns an error instead.
 The response writer only allows setting headers: the body is always the method's JSON response.
 See [File downloads](#file-downloads-and-other-raw-responses) for serving files.
 
+`RequireRpcMeta(ctx)` tells you which method is being called (`Method`, `HttpMethod`) and through which
+transport (`Source`): `jonson.RpcSourceHttp` (one endpoint per method), `jonson.RpcSourceHttpRpc`
+(single rpc endpoint), `jonson.RpcSourceWs`, `jonson.RpcSourceMcp` or `jonson.RpcSourceInternal`
+(called by another method).
+
 The method handler will be passed to the exposing technology during startup, such as:
 
+- http (one endpoint per method, or a single rpc endpoint)
 - websocket
-- http
+- MCP
 - a combination of the above
 
 In most cases, you shouldn't need to use the method handler.
@@ -437,20 +455,60 @@ Use the unconditional `Check` / `Skip` so fields are seen even when valid:
 
 ```go
 func (p *SubmitV1Params) JonsonValidate(v *jonson.Validator) {
-	v.Path("name").Check(p.Name != "", "name is required")
-	v.Path("age").Code(4221).Check(p.Age >= 0, "age must be zero or greater")
-	v.Path("marketing").Skip()
-	v.Path("address").Validate(&p.Address)
+  v.Path("name").Check(p.Name != "", "name is required")
+  v.Path("age").Code(4221).Check(p.Age >= 0, "age must be zero or greater")
+  v.Path("marketing").Skip()
+  v.Path("address").Validate(&p.Address)
 }
 ```
 
 Paths inside an `if` only count when the branch runs for the zero value.
 If `JonsonValidate()` panics on a zero value (e.g. nil pointer deref), this is reported at the same level.
 
+The remaining options:
+
+```go
+handler := jonson.NewMethodHandler(factory, secret, &jonson.MethodHandlerOptions{
+  // max number of requests within a single batch (see "Batch requests"), defaults to 100
+  MaxBatchSize: 50,
+  // the json library used for all requests and responses, defaults to encoding/json
+  JsonHandler: jonson.NewDefaultJsonHandler(),
+  // change what is logged per request; params are logged encrypted with the Secret,
+  // drop them in case you don't want them in your logs at all
+  RpcRequestLogInfoInterceptor: func(info *jonson.RpcRequestLogInfo) *jonson.RpcRequestLogInfo {
+    info.Params = "<redacted>"
+    return info
+  },
+})
+```
+
+### Registering methods without a system
+
+Besides `RegisterSystem`, you can register a single function under a method name of your choice.
+It follows the same rules as a system's method (context first, providers, at most one params struct):
+
+```go
+methodHandler.RegisterMethod(&jonson.MethodDefinition{
+  System:      "custom",
+  Method:      "hello",
+  Version:     1,
+  HandlerFunc: func(ctx *jonson.Context, params *HelloV1Params) (*HelloV1Result, error) {
+    return &HelloV1Result{Greeting: "hello " + params.Name}, nil
+  },
+}) // served as custom/hello.v1
+```
+
+### Calling methods in-process
+
+`ctx.CallMethod("system/method.v1", jonson.RpcHttpMethodPost, params)` calls another method without
+an http round trip. The call runs in a forked context (see "Factory": only shareable values are passed on)
+with `RpcMeta.Source` set to `jonson.RpcSourceInternal`. The generated procedure calls (see "Code generation")
+wrap `CallMethod` with typed params and results, so you will rarely call it directly.
+
 ## Server
 
 The server implements the standard http.Handler interface.
-You can either use the `server.ListenAndServe()` method directly _or_ alternatively
+You can either use the `server.ListenAndServe(":8080")` method directly _or_ alternatively
 write your own server which can use the http.Handler interface provided by
 the server.
 
@@ -459,9 +517,20 @@ the server.
 - rpc over http (using a single endpoint): `jonson.HttpRpcHandler`
 - rpc over websocket: `jonson.WebsocketHandler`
 - a single http endpoint per rpc: `jonson.HttpMethodHandler`
+- methods as tools for AI agents: `jonson.McpHandler`
 - default http handlers which use the http.Request and http.ResponseWriter functionality: `jonson.HttpRegexpHandler`
 
 During startup, you can decide which endpoints you want to provide.
+
+All http handlers limit the request body to 5 MB by default. Use `WithOpts` to change the limit
+(`MaxBytes <= 0` disables it):
+
+```go
+rpcHandler := jonson.NewHttpRpcHandler(methodHandler, "/rpc").WithOpts(&jonson.HttpRpcHandlerOpts{MaxBytes: 1e6})
+httpHandler := jonson.NewHttpMethodHandler(methodHandler).WithOpts(&jonson.HttpMethodHandlerOpts{MaxBytes: 1e6})
+```
+
+Requests exceeding the limit fail with `ErrRequestTooLarge`.
 
 ### RPC over HTTP
 
@@ -469,6 +538,22 @@ The `NewHttpRpcHandler` will handle all registered remote procedure calls within
 defined by the software developer.
 
 The exposed http endpoint will only accept POST requests.
+
+### Batch requests
+
+Over the single rpc endpoint and websocket, you can send multiple requests at once by sending a JSON array
+(a [batch](https://www.jsonrpc.org/specification#batch)). The response is an array as well.
+Requests without an `id` are notifications: they are executed, but a successful call is not answered.
+
+```json
+[
+  { "jsonrpc": "2.0", "id": 1, "method": "account/get-profile.v1", "params": { "uuid": "..." } },
+  { "jsonrpc": "2.0", "id": 2, "method": "account/get-settings.v1" }
+]
+```
+
+A batch may contain at most `MethodHandlerOptions.MaxBatchSize` requests (default 100); larger batches are
+rejected as a whole with `ErrRequestTooLarge`.
 
 ### RPC over HTTP: one endpoint per method
 
@@ -492,6 +577,54 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, _ jonson.HttpPost, params 
 
 Now, the endpoint will only accept http calls using POST.
 In case the endpoint is called using a single endpoint for rpc or websocket, the required jonson.HttpPost has no effect.
+
+Besides a JSON body, this handler accepts params from the **query string** (e.g. for GET requests) or as an
+**`application/x-www-form-urlencoded`** body. The field names are the params' `json` tags, the values are
+converted to the field types, and unknown fields are rejected like for JSON (unless the params implement
+`AllowUnknownFieldsParams`). Params can only come from one source: sending a body _and_ a query string fails
+with `ErrInvalidParams`.
+
+```txt
+GET /news/get-headlines.v1?country=de
+```
+
+### RPC over websocket
+
+`NewWebsocketHandler` serves all methods over a websocket connection on the given path. Each message is a
+JSON-RPC request (or batch); messages of one connection are processed concurrently, so responses may arrive
+in a different order than the requests: match them by `id`.
+
+```go
+wsHandler := jonson.NewWebsocketHandler(methodHandler, "/ws", jonson.NewWebsocketOptions())
+```
+
+`NewWebsocketOptions()` returns the defaults, which you can adjust:
+
+| Option | Default | Effect |
+|---|---|---|
+| `Upgrader` | 1 KB read/write buffers | the gorilla websocket upgrader, e.g. to set `CheckOrigin` |
+| `MaxMessageSize` | 4 MB | max size of a single incoming message |
+| `PongWait` | 60s | the connection is closed if the client does not answer pings within this time |
+| `PingPeriod` | 54s | interval of pings sent to the client, must be shorter than `PongWait` |
+| `WriteWait` | 10s | timeout for writing a single message |
+| `MaxConcurrentMessages` | 64 | max messages processed in parallel per connection; once reached, reading pauses until a slot frees up |
+
+The server can push messages to the client: a method called over websocket can send JSON-RPC
+notifications (requests without `id`) before it returns, e.g. to report progress:
+
+```go
+func (i *Import) RunV1(ctx *jonson.Context, params *RunV1Params) error {
+  client := jonson.RequireWSClient(ctx)
+  // client.IPAddress() and client.UserAgent() describe the connection
+  for n, row := range params.Rows {
+    // process row
+    client.SendNotification(jonson.NewRpcNotification(ctx, "import/progress", map[string]int{"done": n + 1}))
+  }
+  return nil
+}
+```
+
+`RequireWSClient` is only available for calls over websocket.
 
 ### File downloads (and other raw responses)
 
@@ -597,6 +730,26 @@ so `Expose(account.GetProfileV1, "custom description").ExposeSystem(account)` ke
   })
   ```
 
+- Tools whose method requires `*jonson.Private` are protected on `tools/call` like any other call. By default,
+  `tools/list` still lists them to every caller. To only list the tools a caller may call, set
+  `McpHandlerOpts.Authorizer` to a `jonson.AuthBulkAuthorizer`: it is called once per `tools/list` with all
+  private methods and returns which of them the caller may call.
+
+  ```go
+  type ToolAuthorizer struct{}
+
+  func (a *ToolAuthorizer) AuthorizedMethods(ctx *jonson.Context, methods []*jonson.RpcMeta) (map[string]bool, error) {
+    allowed := map[string]bool{}
+    for _, m := range methods {
+      allowed[m.Method] = canCall(ctx, m.Method) // e.g. look up the caller's permissions once
+    }
+    return allowed, nil
+  }
+  ```
+
+- The remaining `McpHandlerOpts`: `Name` and `Version` are returned as `serverInfo`, `Instructions` on
+  `server/discover` tell the model how to use the tools, and `MaxBytes` limits the request body (default 5 MB).
+
 ## Hooks
 
 Params, results and systems change how jonson treats them by implementing optional methods prefixed with
@@ -615,11 +768,21 @@ Params, results and systems change how jonson treats them by implementing option
 In order to encrypt/decrypt server errors that should not be exposed to the client,
 `jonson.Secret` allows you to implement either your own encryption/decryption or use
 the built-in one with `jonson.NewAEADSecret()`.
-For the AEAD secret, consider a key of 32 bytes in length.
-In case the key does not have the above mentioned length, your program will panic.
+The AEAD secret takes the key as a **hex string** of a 32 byte key (64 hex characters, e.g. from
+`openssl rand -hex 32`). In case the key is not valid hex or does not have the above mentioned length,
+your program will panic.
+
+```go
+secret := jonson.NewAEADSecret(os.Getenv("JONSON_SECRET"))
+```
+
+The encrypted values end up in the `debug` field of an error's data. To read them, e.g. from a bug report,
+use `secret.Decode(debug)`.
 
 For debugging purposes, you might want to use the `jonson.NewDebugSecret()` that will
 not encrypt/decrypt but simply pass the error to the rpc response.
+
+`jonson.NewOFBSecret()` is deprecated; use `NewAEADSecret` instead.
 
 ## Putting it all together
 
@@ -637,7 +800,7 @@ func main(){
   factory := jonson.NewFactory()
 
   // register a provider defining multiple provider instantiation methods
-  factory.RegisterProvider(infrastructure.NewInfrastructureProvider(db, func(){
+  factory.RegisterProvider(infrastructure.NewInfrastructureProvider(db, func() time.Time {
     return time.Now()
   }))
 
@@ -703,12 +866,12 @@ to pass the wsHandler as the first argument when calling `jonson.NewServer()`.
 
 ## Exposed paths
 
-The methods a client will try to call can be exposed with different technologies as mentioned above (websocket, http rpc or http methods).
+The methods a client will try to call can be exposed with different technologies as mentioned above (websocket, http rpc, http methods or MCP).
 
 In case you are using http methods, the paths exposed will look like this:
-/<systemName>/<methodName>.v<version>.
+`/<systemName>/<methodName>.v<version>`.
 The system- and method names will be converted to kebab-case: account.GetProfileV1 will result in account/get-profile.v1.
-The params you send (body) needs to match the json specification of your rpc's params.
+The params you send (body, query string or form, see above) need to match the json specification of your rpc's params.
 The result will be returned within the body as json following your rpc's return value's json schema.
 
 For successful remote procedure calls, the http status code will be 200.
@@ -720,10 +883,10 @@ However, you will have to wrap the request in the [jsonRpc request object](https
 
 ```json
 {
-  "jsonrpc": 2.0,
+  "jsonrpc": "2.0",
   "id": 1,
   "method": "<systemName>/<methodName>.v<version>",
-  "params": {},
+  "params": {}
 }
 ```
 
@@ -732,7 +895,7 @@ Each request should use its unique id per client to map the request to the respo
 
 ```json
 {
-  "jsonrpc": 2.0,
+  "jsonrpc": "2.0",
   "id": 1,
   "result": {}
 }
@@ -742,11 +905,11 @@ In case of an error response, the client will receive no result but an error in 
 
 ```json
 {
-  "jsonrpc": 2.0,
+  "jsonrpc": "2.0",
   "id": 1,
   "error": {
-    "code": -32000,
-    "message": "Internal server error"
+    "code": -32603,
+    "message": "Internal error"
   }
 }
 ```
@@ -765,28 +928,33 @@ server := jonson.NewServer(...)
 factory := jonson.NewFactory()
 
 // instantiate a graceful provider
-graceful := jonson.NewGracefulProvider().WithCustomHttpServer(&http.Server{
+graceful := jonson.NewGracefulProvider().WithHttpServer(&http.Server{
   Addr: ":8080",
   Handler: server,
 }).WithLogger(logger)
+// or, shorter: jonson.NewGracefulProvider().WithDefaultHttpServer(server, ":8080")
 
 // make the graceful provider known to
 // long-running operations
 factory.RegisterProvider(graceful)
 
-// start the graceful sterver
+// start the graceful server
 graceful.ListenAndServe()
 ```
+
+`ListenAndServe` blocks until the process receives SIGINT or SIGTERM, then shuts the server down.
+By default, it waits for all open requests; `WithTimeout` limits how long it waits.
 
 Within a long running operation and/or API endpoint, you can now check for graceful shutdowns:
 
 ```go
-func (s *System) ProcessV1(ctx *jonson.Context){
+func (s *System) ProcessV1(ctx *jonson.Context) error {
   graceful := jonson.RequireGraceful(ctx)
   for graceful.IsUp(){
     // process long-running operation
   }
   // done processing, server is shutting down
+  return nil
 }
 ```
 
@@ -797,6 +965,38 @@ You can either clone those and add your own data by calling e.g. `jonson.ErrInva
 or define your own errors by using `jonson.Error`.
 A jsonRpc error consists of a message, a code and optional data.
 For further details on error messages, have a look at: [jsonRpc error object](https://www.jsonrpc.org/specification#error_object)
+
+The predefined errors, and the http status code used by the one-endpoint-per-method handler:
+
+| Error | Code | Message | Http status |
+|---|---|---|---|
+| `ErrParse` | -32700 | Parse error | 400 |
+| `ErrInvalidParams` | -32602 | Invalid params | 400 |
+| `ErrMethodNotFound` | -32601 | Method not found | 404 |
+| `ErrInternal` | -32603 | Internal error | 500 |
+| `ErrServerMethodNotAllowed` | -32000 | Server error: method not allowed | 405 |
+| `ErrUnauthorized` | -32001 | Not authorized | 403 |
+| `ErrUnauthenticated` | -32002 | Not authenticated | 403 (not 401, which triggers basic auth in browsers) |
+| `ErrTooManyRequests` | -32003 | Too many requests | 429 |
+| `ErrRequestTooLarge` | -32004 | Request too large | 413 |
+
+Errors of your own codes are returned with status 500. Any error that is not a `*jonson.Error` (e.g. from
+your database) is returned as `ErrInternal`, with the original message encrypted in `data.debug` (see "Secret").
+
+Errors carry `data.path` (the field of the params, for validation errors) and `data.details` (nested errors,
+e.g. one per invalid field). To search them, e.g. in tests, use the inspector:
+
+```go
+var e *jonson.Error
+if errors.As(err, &e) {
+  // the first error for the field "username" with code 10000, if any
+  usernameErr, _ := e.Inspect().Path("username").Code(10000).FindFirst()
+  // all errors with the code of ErrInvalidParams
+  all := e.Inspect().Error(jonson.ErrInvalidParams).FindAll()
+}
+```
+
+`FindOne` and `FindCount(n)` additionally fail in case not exactly one (or `n`) errors match.
 
 ## Advanced factory features
 
@@ -815,7 +1015,7 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, params *LoginV1Params) err
 
 Additionally, Jonson allows you to use any provided type in your remote procedure call's parameters.
 In case the parameter is not providable and not of type `jonson.Context` or a remote procedure call `jonson.Params`,
-the function will not be called.
+registering the method panics at startup.
 
 You can for example directly define the db as a parameter in your function and access it within your logic.
 
@@ -827,45 +1027,43 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, db *infra.DB, params *Logi
 }
 ```
 
-This feature comes in very handy in case you want to check whether an account is authenticated or not.
+This feature comes in very handy for guards: a provider which panics in case a precondition is not met.
+Since providers are instantiated before the method runs, the method is never executed without it.
+Jonson's own `jonson.Private` and `jonson.Public` work this way (see "Auth provider"); a guard of your own,
+e.g. for an api key, could look like this:
 
 ```go
-
-type AuthenticationProvider struct {
-
-}
+type ApiKeyProvider struct{}
 
 // @generate
-type Private struct {}
-
-func (a *AuthenticationProvider) NewPrivate(ctx *jonson.Context) *Private{
-  req := jonson.RequireHttpRequest(ctx)
-  sessionId := req.Cookie("sessionId")
-  if (sessionId == ""){
-    panic(jonson.ErrUnauthenticated)
-  }
-  // more logic here
-
-  return &Private{}
-}
-```
-
-Within your endpoint, you can now use `Private` as a safeguard.
-In case the calling user does not possess a valid session, the provider will
-panic and the function will never be callable.
-
-```go
-
-type MeV1Result struct {
+type ApiKey struct {
   Name string
 }
 
-// MeV1 returns my profile
-func (a *Authentication) MeV1(ctx *jonson.Context, private *Private) (*MeV1Result, error) {
-  // By now, we know that the user does possess a valid session.
-  // We cano now safely proceed with the function's flow
-  return &MeV1Result {
-    Name: "Silvio"
+func (a *ApiKeyProvider) NewApiKey(ctx *jonson.Context) *ApiKey {
+  key := jonson.RequireHttpRequest(ctx).Header.Get("X-Api-Key")
+  name, ok := lookupApiKey(key)
+  if !ok {
+    panic(jonson.ErrUnauthenticated)
+  }
+  return &ApiKey{Name: name}
+}
+```
+
+Within your endpoint, you can now use `ApiKey` as a safeguard.
+In case the caller does not send a valid api key, the provider will
+panic and the method will never be executed.
+
+```go
+type StatsV1Result struct {
+  Calls int `json:"calls"`
+}
+
+// StatsV1 returns the usage of the calling api key
+func (a *Admin) StatsV1(ctx *jonson.Context, key *ApiKey) (*StatsV1Result, error) {
+  // By now, we know that the caller sent a valid api key.
+  return &StatsV1Result{
+    Calls: countCalls(key.Name),
   }, nil
 }
 ```
@@ -896,7 +1094,7 @@ go func(){
 ## Impersonation
 
 In certain cases, you might have to impersonate another caller: Alice needs to perform certain operation in the scope
-of user Bob. Therefore, you can use the `Impersonator`. By providing the `jonson.ImpersonatorProvider()` to the
+of user Bob. Therefore, you can use the `Impersonator`. By registering `jonson.NewImpersonatorProvider()` with the
 factory during initialization, you can use jonson's impersonator to make calls on behalf of other accounts.
 The impersonator can impersonate multiple accounts:
 In case Alice calls on behalf of Bob which calls in behalf of Charly, the Impersonator will create a new
@@ -909,16 +1107,22 @@ fac := jonson.NewFactory()
 fac.RegisterProvider(jonson.NewImpersonatorProvider())
 
 type DoOnUsersBehalfV1Params struct {
-  OtherAccountUuid uuid
+  jonson.Params
+  OtherAccountUuid string `json:"otherAccountUuid"`
 }
 
 func (a *Authentication) DoOnUsersBehalfV1(ctx *jonson.Context, params *DoOnUsersBehalfV1Params) error {
-  return jonson.RequireImpersonator(params).Impersonate(params.OtherAccountUuid, func(ctx *jonson.Context) error {
+  return jonson.RequireImpersonator(ctx).Impersonate(params.OtherAccountUuid, func(ctx *jonson.Context) error {
     // perform any logic inside the scope of OtherAccountUuid
     return nil
   })
 }
 ```
+
+Impersonation requires the auth provider (see "Auth provider"): before `fn` runs, the impersonator asks your
+`AuthClient.IsAuthenticated` within the impersonated context. In case it returns no account, `Impersonate`
+fails with `ErrUnauthorized`, so your auth client decides who may impersonate whom.
+Only values marked `jonson.ShareableAcrossImpersonation` are taken into the impersonated context.
 
 Within your `IsAuthenticated(ctx)` and `IsAuthorized(ctx)` implementations, you should access the impersonated
 values which have or have not been set by a function:
@@ -944,13 +1148,16 @@ Since it's used in basically all applications, jonson comes with a pre-defined t
 
 The time provider allows you to also mock a timing instance during your tests (see: testing).
 
-For production purposes, you will potentially want to use a real time provided
-to your remote procedure calls. Use `jonson.RealTime` to provide a real timestamp.
+The time provider is not registered by default. Without arguments, it provides the real time
+(`jonson.RealTime`); access it with `jonson.RequireTime(ctx).Now()`:
 
 ```go
-timeProvider := jonson.NewTimeProvider(func()jonson.Time{
+factory.RegisterProvider(jonson.NewTimeProvider())
+
+// equivalent, explicitly passing the real time
+factory.RegisterProvider(jonson.NewTimeProvider(func() jonson.Time {
   return jonson.NewRealTime()
-})
+}))
 ```
 
 ## Auth provider
@@ -963,59 +1170,65 @@ You can use the jonson.AuthProvider to create an authentication provider.
 IsAuthenticated: the account is logged in;
 IsAuthorized: the account is logged in _and_ has access rights to the called route.
 
+Both return `(accountUuid, nil)` on success, `(nil, nil)` in case the caller is not authenticated/authorized
+and `(nil, err)` in case the check itself failed (e.g. the database is down).
 You will probably implement the client similar to the example below:
 
 ```go
-
 type AuthClient struct {
+  sessions *SessionStore
 }
 
 var _ jonson.AuthClient = (&AuthClient{})
 
-func(a *AuthClient) IsAuthenticated(ctx *jonson.Context)(*string, error){
-  req := jonson.RequireHttpRequest(ctx)
-  cookie, err := req.Cookie("session")
-  if err != nil{
+func (a *AuthClient) IsAuthenticated(ctx *jonson.Context) (*string, error) {
+  cookie, err := jonson.RequireHttpRequest(ctx).Cookie("session")
+  if err != nil {
     // missing session cookie
     return nil, nil
   }
-  value := string(cookie.Value)
   // look up the session in your database or remote system
-  var accountUuid string
-  err := db.Get(&accountUuid, `...`)
-  if err != nil {
-     // db connection error?
+  accountUuid, found, err := a.sessions.AccountUuid(cookie.Value)
+  if err != nil || !found {
     return nil, err
   }
   return &accountUuid, nil
 }
 
-func(a *AuthClient) IsAuthorized(ctx *jonson.Context)(*string, error){
-  req := jonson.RequireHttpRequest(ctx)
-  // we need the meta from the request to check whether
-  // the account is able to call the underlying method
-  meta := jonson.ReuqireRpcMeta(ctx)
-  cookie, err := req.Cookie("session")
-  if err != nil{
-    // missing session cookie
-    return nil, nil
-  }
-  value := string(cookie.Value)
-  // look up the session in your database or remote system
-  // _and_ make sure the account can access the current method
-  var accountUuid string
-  var canAccess bool
-  canAccess, err := db.Get(&accountUuid, `...`, meta.Method)
-  if err != nil {
-     // db connection error?
+func (a *AuthClient) IsAuthorized(ctx *jonson.Context) (*string, error) {
+  accountUuid, err := a.IsAuthenticated(ctx)
+  if err != nil || accountUuid == nil {
     return nil, err
   }
-  if (!canAccess){
-    return nil, nil
+  // the meta tells us which method is being called
+  meta := jonson.RequireRpcMeta(ctx)
+  canAccess, err := a.sessions.CanAccess(*accountUuid, meta.Method)
+  if err != nil || !canAccess {
+    return nil, err
   }
-  return &accountUuid, nil
+  return accountUuid, nil
+}
+```
+
+Register the provider and use `jonson.Private` and `jonson.Public` in your methods:
+
+```go
+factory.RegisterProvider(jonson.NewAuthProvider(&AuthClient{sessions: sessions}))
+
+// GetProfileV1 can only be called by authorized accounts:
+// otherwise, the method is not executed and the caller receives ErrUnauthorized
+func (a *Account) GetProfileV1(ctx *jonson.Context, caller *jonson.Private) (*GetProfileV1Result, error) {
+  return loadProfile(caller.AccountUuid())
 }
 
+// GetNewsV1 can be called by everyone; logged in accounts get personalized news
+func (n *News) GetNewsV1(ctx *jonson.Context, caller *jonson.Public) (*GetNewsV1Result, error) {
+  accountUuid, err := caller.AccountUuid(ctx) // nil in case the caller is not logged in
+  if err != nil {
+    return nil, err
+  }
+  return loadNews(accountUuid)
+}
 ```
 
 For nested in-process-calls of methods (e.g. method A calls method B using generated remote procedure calls),
@@ -1057,9 +1270,32 @@ t.Run("gets profile", func(t *testing.T) {
 })
 ```
 
+`MustRun` fails the test in case `fn` returns an error; `Run` returns the error instead, e.g. to assert
+an expected error. A panic inside `fn` is turned into an error as well; to see where it happened,
+pass a stack inspector (`contextBoundary.WithStackInspector(func(stack string){ t.Log(stack) })`).
+
 The test context boundary is pre-equipped with functions to provide a http.Request and http.ResponseWriters by using `contextBoundary.WithHttpSource()`. In case needed, you can also specify your RpcMeta by using `contextBoundary.WithRpcMeta()`.
 
-In case you want to mock a time during testing, use `jonsontest.NewFrozenTime()` or `jonsontest.NewReferenceTime()`:
+To test the validation of your params without calling a method, use `jonsontest.ValidateParams`.
+It returns the validation error (or nil), which you can search with the inspector (see "Error handling"):
+
+```go
+err := jonsontest.ValidateParams(&RegisterV1Params{Username: "abc"})
+if err == nil {
+  t.Fatal("expected validation to fail")
+}
+if _, e := err.Inspect().Path("username").Code(10000).FindOne(); e != nil {
+  t.Fatal("expected username to be rejected")
+}
+```
+
+In case your code relies on `jonson.Graceful`, register `jonsontest.NewGracefulProvider()` instead of the
+real one and call `Shutdown()` (and `Restart()`) to mimic a server shutdown.
+
+In case you want to mock a time during testing, use `jonsontest.NewFrozenTime()` or `jonsontest.NewReferenceTime()`.
+A frozen time stands still until you move it (`Add`, `AddDate`, `SetNow`, `SetTime`), a reference time starts
+at the given time and then moves on like the real clock. `Sleep` really sleeps by default; replace it with
+`WithSleep`, e.g. to move the mocked time forward instead of waiting:
 
 ```go
 factory := jonson.NewFactory()
@@ -1067,7 +1303,7 @@ factory.RegisterProvider(NewAuthenticationProvider())
 
 frozenTime := jonsontest.NewFrozenTime()
 
-factory.RegisterProvider(jonson.NewTimeProvider(func(){
+factory.RegisterProvider(jonson.NewTimeProvider(func() jonson.Time {
   return frozenTime
 }))
 
@@ -1105,11 +1341,11 @@ accSuperUser := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authoriz
 t.Run("accSuperUser can access set and get", func(t *testing.T) {
   // provide the super user to the context boundary - the account will now be the calling account
   // of your tests
-  NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
+  jonsontest.NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
     // call your generated remote procedure call methods
     return GetV1(ctx)
   })
-  NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
+  jonsontest.NewContextBoundary(t, fac, mtd, accSuperUser.Provide).MustRun(func(ctx *jonson.Context) error {
     return SetV1(ctx)
   })
 })
@@ -1130,12 +1366,16 @@ acc3 := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized()
 
 // generate an account that has access to specific methods only
 acc4 := mock.NewAccount("e6dd1e60-8969-4f08-a854-80a29b69d7f3").Authorized(&jonsontest.RpcMethod{
-  RpcHttpMethod: jonson.RpcHttpMethodPost,
-  method: "/user/get.v1"
+  HttpMethod: jonson.RpcHttpMethodPost,
+  Method:     "user/get.v1", // the method name as in RpcMeta, without leading slash
 })
+
+// allow an account to impersonate other accounts (see "Impersonation")
+acc5 := mock.NewAccount("4f1b7c2e-0d6a-4c8e-9b1f-2a3d4e5f6a7b").Authorized().CanImpersonate(acc1, acc2)
 ```
 
-Authorized accounts are also authenticated (logged in). No need
+Authorized accounts are also authenticated (logged in), so there is no need to call `Authenticated()` as well.
+An account either has access to all methods (`Authorized()`) or to a list of methods; mixing both panics.
 
 ## Code generation
 
@@ -1157,9 +1397,14 @@ For projects forking jonson, you can provide your own jonson import as a flag du
 //go:generate go run github.com/doejon/jonson/cmd/generate -jonson=github.com/doejon/jonson
 ```
 
-Using `go generate ./...`, you should now see two new files being created within your system
-containing providers and remote procedure calls:
-`jonson.procedure-calls.gen.go` and `jonson.providers.gen.go`.
+By default, the generator scans the current directory; use `-path` to scan another one.
+
+Using `go generate ./...`, you should now see three new files being created within your system:
+
+- `jonson.procedure-calls.gen.go`: typed functions to call the system's methods in-process
+- `jonson.providers.gen.go`: the `Require<Type>()` functions for types tagged with `// @generate`
+- `jonson.descriptions.gen.go`: the doc comments of your methods and struct fields, used as MCP tool and
+  field descriptions (see "MCP")
 
 The procedure calls file contains all remote procedure calls specified within
 the current system. These helper methods allow us to call another system's procedure without
@@ -1169,6 +1414,29 @@ In order to trigger code generation, tag the types that should be requirable wit
 
 Current generation limitations:
 The generator currently only works with the default method name used within jonson.
+
+## Plugins
+
+The package `github.com/doejon/jonson/plugins` contains optional extensions.
+
+`JsonMutatorHandler` wraps a `jonson.JsonHandler` and runs mutators on every value before it is encoded
+(`WithEncodeMutator`) or after it is decoded (`WithDecodeMutator`). Pass it as
+`MethodHandlerOptions.JsonHandler`.
+
+`NilSliceNormalizer` is such an encode mutator: it turns nil slices into empty ones, so clients receive `[]`
+instead of `null`. Fields tagged `omitempty` are left alone.
+
+```go
+jsonHandler := plugins.NewJsonMutatorHandler(jonson.NewDefaultJsonHandler()).
+  WithEncodeMutator(plugins.NewNilSliceNormalizer())
+
+methodHandler := jonson.NewMethodHandler(factory, secret, &jonson.MethodHandlerOptions{
+  JsonHandler: jsonHandler,
+})
+```
+
+To see which fields were normalized, e.g. to fix them at the source, set
+`WithLogger(logger).WithLogLevel(plugins.LogLevelDebug)` on the normalizer.
 
 ## Dedication
 
