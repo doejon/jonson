@@ -399,6 +399,9 @@ func RequireSecret(ctx *jonson.Context) jonson.Secret{}
 
 ```
 
+The response writer only allows setting headers: the body is always the method's JSON response.
+See [File downloads](#file-downloads-and-other-raw-responses) for serving files.
+
 The method handler will be passed to the exposing technology during startup, such as:
 
 - websocket
@@ -484,6 +487,42 @@ func (a *Authentication) LoginV1(ctx *jonson.Context, _ jonson.HttpPost, params 
 
 Now, the endpoint will only accept http calls using POST.
 In case the endpoint is called using a single endpoint for rpc or websocket, the required jonson.HttpPost has no effect.
+
+### File downloads (and other raw responses)
+
+Remote procedure calls do not serve files. A remote procedure call always responds with its JSON result or
+a JSON error, regardless of the transport (http, rpc over http, websocket, MCP). Methods may set headers
+using `RequireHttpResponseWriter(ctx)`, e.g. to set a cookie, but writing a body or a status code is rejected
+with `ErrServerMethodNotAllowed`.
+
+To serve a file, register a plain http handler with the `HttpRegexpHandler` instead. It works with the
+http.Request and http.ResponseWriter directly, and still receives providers from the factory, such as
+`jonson.Private` for authorization:
+
+```go
+regexpHandler := jonson.NewHttpRegexpHandler(factory, methodHandler)
+
+regexpHandler.RegisterRegexp(regexp.MustCompile(`^/files/([0-9a-f-]+)$`), func(
+  ctx *jonson.Context,
+  _ *jonson.Private, // only authorized accounts may download
+  w *jonson.HttpResponseWriter,
+  parts *jonson.HttpRegexpMatchedParts,
+) {
+  // parts.Parts[0] is the full match, parts.Parts[1] the file id
+  f, err := files.Open(parts.Parts[1])
+  if err != nil {
+    // a jonson error is returned to the client as json
+    panic(jonson.ErrInternal)
+  }
+  defer f.Close()
+
+  w.Header().Set("Content-Type", "text/csv")
+  w.Header().Set("Content-Disposition", `attachment; filename="export.csv"`)
+  io.Copy(w, f)
+}).WithRpcMethod("files/download.v1") // the method name the auth client checks in RpcMeta
+```
+
+A regexp handler is not a remote procedure call: it cannot be called by other methods, over rpc, websocket or MCP.
 
 ### MCP: methods as tools for AI agents
 
@@ -633,9 +672,9 @@ func main(){
   // using the default http.Request and http.ResponseWriter wrapped by jonson's request/response structs.
   // Regexp function also allow you to pass other required parameters to the handler. Context however
   // needs to be the first argument in the handler's list of argument.
-  regexHandler := jonson.NewHttpRegexpHandler(methodHandler)
-  regexpHandler.RegisterRegexp("/health", func(ctx *jonson.Context, w *jonson.HttpResponseWriter, r *jonson.HttpRequest, parts *jonson.HttpRegexpMatchedParts){
-    w.Write("UP")
+  regexpHandler := jonson.NewHttpRegexpHandler(factory, methodHandler)
+  regexpHandler.RegisterRegexp(regexp.MustCompile(`^/health$`), func(ctx *jonson.Context, w *jonson.HttpResponseWriter) {
+    w.Write([]byte("UP"))
   })
 
 

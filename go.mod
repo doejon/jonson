@@ -1,6 +1,6 @@
 module github.com/doejon/jonson
 
-go 1.26
+go 1.27
 
 require (
 	github.com/gorilla/schema v1.4.1
