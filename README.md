@@ -399,6 +399,11 @@ func RequireSecret(ctx *jonson.Context) jonson.Secret{}
 
 ```
 
+`Require*()` calls fail hard on purpose: in case a value cannot be provided, they panic and the call is aborted.
+A missing value is a wiring error, not something to handle within the method, so there is no error to check.
+The panic is turned into the rpc's error response. For values which are genuinely optional, use `ctx.GetValue()`,
+which returns an error instead.
+
 The response writer only allows setting headers: the body is always the method's JSON response.
 See [File downloads](#file-downloads-and-other-raw-responses) for serving files.
 
